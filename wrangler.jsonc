@@ -10,19 +10,22 @@
 	"compatibility_flags": ["nodejs_compat"],
 	"migrations": [
 		{
-			"new_sqlite_classes": ["MyMCP"],
-			"tag": "v1"
+			"new_sqlite_classes": ["EntrezMCP"],
+			"tag": "v4"
 		}
 	],
 	"durable_objects": {
 		"bindings": [
 			{
-				"class_name": "MyMCP",
+				"class_name": "EntrezMCP",
 				"name": "MCP_OBJECT"
 			}
 		]
 	},
 	"observability": {
 		"enabled": true
+	},
+	"vars": {
+		"NCBI_API_KEY": "${NCBI_API_KEY}"
 	}
 }
