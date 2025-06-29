@@ -8,6 +8,9 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat"],
+	"dev": {
+		"port": 8787
+	},
 	"durable_objects": {
 		"bindings": [
 			{
@@ -16,6 +19,14 @@
 			}
 		]
 	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"EntrezMCP"
+			]
+		}
+	],
 	"observability": {
 		"enabled": true
 	},

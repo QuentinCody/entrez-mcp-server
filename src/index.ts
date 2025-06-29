@@ -14,9 +14,33 @@ export class EntrezMCP extends McpAgent {
 	private defaultEmail = "entrez-mcp-server@example.com";
 	private defaultTool = "entrez-mcp-server";
 
-	// Optional Entrez API key pulled from the Workers `env` vars (set in wrangler.toml/json).
-	// Cloudflare exposes them on `globalThis` inside the worker runtime.
-	private readonly apiKey: string | undefined = (globalThis as any)?.NCBI_API_KEY as string | undefined;
+	// Optional Entrez API key - accessed from environment via method
+	private getApiKey(): string | undefined {
+		// In Cloudflare Workers, we need to access env through the context
+		// This will be set via a static property during request handling
+		return EntrezMCP.currentEnv?.NCBI_API_KEY;
+	}
+
+	// Static property to hold the current environment during request processing
+	public static currentEnv: Env | undefined;
+
+	// Helper method to get API key status for user feedback
+	private getApiKeyStatus(): { hasKey: boolean; message: string; rateLimit: string } {
+		const apiKey = this.getApiKey();
+		if (apiKey) {
+			return {
+				hasKey: true,
+				message: `✅ NCBI API Key configured (${apiKey.substring(0, 8)}...)`,
+				rateLimit: "10 requests/second"
+			};
+		} else {
+			return {
+				hasKey: false,
+				message: "⚠️  No NCBI API Key found - using default rate limits",
+				rateLimit: "3 requests/second"
+			};
+		}
+	}
 
 	// Helper method to validate database names
 	private isValidDatabase(db: string): boolean {
@@ -133,13 +157,53 @@ export class EntrezMCP extends McpAgent {
 			}
 		});
 		// Automatically attach API key if available
-		if (this.apiKey) {
-			cleanParams.append("api_key", this.apiKey);
+		const apiKey = this.getApiKey();
+		if (apiKey) {
+			cleanParams.append("api_key", apiKey);
 		}
 		return `${this.baseUrl}${endpoint}?${cleanParams}`;
 	}
 
 	async init() {
+		// API Key Status - Check NCBI API key configuration and rate limits
+		this.server.tool(
+			"api_key_status",
+			{},
+			async () => {
+				const status = this.getApiKeyStatus();
+				
+				const helpMessage = status.hasKey 
+					? `Your NCBI API key is properly configured and active! You can make up to ${status.rateLimit}.`
+					: `No API key configured. You're limited to ${status.rateLimit}. 
+
+To get 3x better performance:
+1. Get your free API key: https://ncbiinsights.ncbi.nlm.nih.gov/2017/11/02/new-api-keys-for-the-e-utilities/
+2. Set environment variable: NCBI_API_KEY="your_key_here"
+3. Restart the server
+4. Run this tool again to verify
+
+See API_KEY_SETUP.md for detailed instructions.`;
+
+				return {
+					content: [
+						{
+							type: "text",
+							text: `NCBI API Key Status Report
+================================
+
+${status.message}
+Rate Limit: ${status.rateLimit}
+
+${helpMessage}
+
+Need help? Run the rate limit tester:
+node test-rate-limits.js`
+						}
+					]
+				};
+			}
+		);
+
 		// EInfo - Get metadata about an Entrez database
 		this.server.tool(
 			"einfo",
@@ -1151,14 +1215,14 @@ export class EntrezMCP extends McpAgent {
 
 					// Build the correct PubChem structure search URL
 					const baseUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound`;
-					let url;
+					let url: string;
 					
 					const params = new URLSearchParams({
 						tool: this.defaultTool,
 						email: this.defaultEmail,
 					});
 
-					let response;
+					let response: Response;
 
 					if (search_type === "identity") {
 						// Identity search is synchronous and uses GET.
@@ -1408,6 +1472,9 @@ export class MyMCP extends EntrezMCP {}
 
 export default {
 	fetch(request: Request, env: Env, ctx: ExecutionContext) {
+		// Set the environment for the EntrezMCP class to access
+		EntrezMCP.currentEnv = env;
+		
 		const url = new URL(request.url);
 
 		if (url.pathname === "/sse" || url.pathname === "/sse/message") {

@@ -1,21 +1,51 @@
-# Building a Remote MCP Server on Cloudflare (Without Auth)
+# NCBI Entrez MCP Server
 
-This example allows you to deploy a remote MCP server that doesn't require authentication on Cloudflare Workers. 
+A comprehensive Model Context Protocol (MCP) server providing access to NCBI's complete suite of APIs including E-utilities, BLAST, PubChem, and PMC services.
 
-## Get started: 
+## 🚀 Quick Start
 
-[![Deploy to Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/ai/tree/main/demos/remote-mcp-authless)
+**Works out of the box** - no configuration required!
 
-This will deploy your MCP server to a URL like: `remote-mcp-server-authless.<your-account>.workers.dev/sse`
-
-Alternatively, you can use the command line below to get the remote MCP Server created on your local machine:
 ```bash
-npm create cloudflare@latest -- my-mcp-server --template=cloudflare/ai/demos/remote-mcp-authless
+git clone <this-repo>
+cd entrez-mcp-server
+npm install
+npm start
 ```
 
-## Customizing your MCP Server
+## 🎯 Features
 
-To add your own [tools](https://developers.cloudflare.com/agents/model-context-protocol/tools/) to the MCP server, define each tool inside the `init()` method of `src/index.ts` using `this.server.tool(...)`. 
+- **Complete NCBI API Coverage**: E-utilities, BLAST, PubChem PUG, PMC APIs
+- **No Setup Required**: Works immediately without any configuration
+- **Optional Performance Boost**: Add your free NCBI API key for 3x better rate limits
+- **Rate Limiting**: Built-in respect for NCBI rate limits (3/sec → 10/sec with API key)
+- **User-Friendly**: Designed for both technical and non-technical users
+
+## 📊 Performance
+
+| Configuration | Rate Limit | Performance |
+|---------------|------------|-------------|
+| **Default (No API Key)** | 3 requests/second | ✅ Works out of the box |
+| **With API Key** | 10 requests/second | 🚀 3.3x faster |
+
+## 🔑 Optional API Key Setup
+
+For better performance, add your free NCBI API key:
+
+1. **Get your key**: [NCBI API Key Registration](https://ncbiinsights.ncbi.nlm.nih.gov/2017/11/02/new-api-keys-for-the-e-utilities/) (takes 30 seconds)
+2. **Set environment variable**: `export NCBI_API_KEY="your_key_here"`
+3. **Test it works**: `node test-rate-limits.js`
+
+See [API_KEY_SETUP.md](API_KEY_SETUP.md) for detailed instructions.
+
+## 🧪 Testing
+
+Test your setup and verify rate limits:
+```bash
+node test-rate-limits.js
+```
+
+This will test both authenticated and unauthenticated scenarios and verify your API key is working correctly.
 
 ## Connect to Cloudflare AI Playground
 
