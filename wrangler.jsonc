@@ -25,6 +25,14 @@
 			"new_sqlite_classes": [
 				"EntrezMCP"
 			]
+		},
+		{
+			"tag": "v2",
+			"renamed_classes": []
+		},
+		{
+			"tag": "v3",
+			"renamed_classes": []
 		}
 	],
 	"observability": {
