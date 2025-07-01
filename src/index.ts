@@ -164,6 +164,198 @@ export class EntrezMCP extends McpAgent {
 		return `${this.baseUrl}${endpoint}?${cleanParams}`;
 	}
 
+	// Enhanced response parsing with structured data extraction
+	private async parseAndStructureResponse(response: Response, toolName: string, format: string = "xml"): Promise<any> {
+		const rawData = await this.parseResponse(response, toolName);
+		
+		// Try to structure the response based on format and tool
+		if (format === "json") {
+			try {
+				return JSON.parse(rawData);
+			} catch {
+				return { raw: rawData };
+			}
+		}
+		
+		// For XML responses, extract key information
+		if (format === "xml" && toolName.includes("ESearch")) {
+			const count = rawData.match(/<Count>(\d+)<\/Count>/)?.[1];
+			const idList = rawData.match(/<Id>(\d+)<\/Id>/g)?.map(id => id.match(/<Id>(\d+)<\/Id>/)?.[1]);
+			const webEnv = rawData.match(/<WebEnv>([^<]+)<\/WebEnv>/)?.[1];
+			const queryKey = rawData.match(/<QueryKey>(\d+)<\/QueryKey>/)?.[1];
+			
+			return {
+				count: count ? parseInt(count) : 0,
+				ids: idList || [],
+				webEnv,
+				queryKey,
+				raw: rawData
+			};
+		}
+		
+		if (format === "xml" && toolName.includes("ESummary")) {
+			// Extract key fields from summary XML
+			const summaries: any[] = [];
+			const docSumPattern = /<DocSum>([\s\S]*?)<\/DocSum>/g;
+			let match;
+			
+			while ((match = docSumPattern.exec(rawData)) !== null) {
+				const docSum = match[1];
+				const id = docSum.match(/<Id>(\d+)<\/Id>/)?.[1];
+				const title = docSum.match(/<Item Name="Title"[^>]*>([^<]+)<\/Item>/)?.[1];
+				const authors = docSum.match(/<Item Name="AuthorList"[^>]*>([^<]+)<\/Item>/)?.[1];
+				const pubDate = docSum.match(/<Item Name="PubDate"[^>]*>([^<]+)<\/Item>/)?.[1];
+				const source = docSum.match(/<Item Name="Source"[^>]*>([^<]+)<\/Item>/)?.[1];
+				
+				if (id) {
+					summaries.push({
+						id,
+						title: title?.trim(),
+						authors: authors?.trim(),
+						pubDate: pubDate?.trim(),
+						source: source?.trim()
+					});
+				}
+			}
+			
+			return {
+				summaries,
+				count: summaries.length,
+				raw: rawData
+			};
+		}
+		
+		return { raw: rawData };
+	}
+
+	// Batch processing support for ID-based operations
+	private async processBatchIds(ids: string[], batchSize: number, processor: (batch: string[]) => Promise<any>): Promise<any[]> {
+		const results: any[] = [];
+		const batches: string[][] = [];
+		
+		// Create batches
+		for (let i = 0; i < ids.length; i += batchSize) {
+			batches.push(ids.slice(i, i + batchSize));
+		}
+		
+		// Process batches with rate limiting
+		for (const batch of batches) {
+			try {
+				const result = await processor(batch);
+				results.push(result);
+				
+				// Add delay between batches to respect rate limits
+				if (batches.indexOf(batch) < batches.length - 1) {
+					const delay = this.getApiKey() ? 100 : 350; // 10/sec with key, ~3/sec without
+					await new Promise(resolve => setTimeout(resolve, delay));
+				}
+			} catch (error) {
+				results.push({
+					error: error instanceof Error ? error.message : String(error),
+					batch
+				});
+			}
+		}
+		
+		return results;
+	}
+
+	// Intelligent query builder with field optimization
+	private buildOptimizedQuery(term: string, field?: string, filters?: { mindate?: string; maxdate?: string; rettype?: string[] }): string {
+		let query = term.trim();
+		
+		// Apply field restriction if specified
+		if (field) {
+			query = `${query}[${field}]`;
+		}
+		
+		// Add date filters
+		if (filters?.mindate || filters?.maxdate) {
+			const dateFilter = [];
+			if (filters.mindate) dateFilter.push(filters.mindate);
+			if (filters.maxdate) dateFilter.push(filters.maxdate);
+			query += ` AND ${dateFilter.join(":")}[Date - Publication]`;
+		}
+		
+		// Add publication type filters
+		if (filters?.rettype && filters.rettype.length > 0) {
+			const typeFilter = filters.rettype.map(type => `${type}[Publication Type]`).join(" OR ");
+			query += ` AND (${typeFilter})`;
+		}
+		
+		return query;
+	}
+
+	// Cache for frequently accessed data
+	private cache: Map<string, { data: any; timestamp: number }> = new Map();
+	private CACHE_TTL = 300000; // 5 minutes
+
+	private getCached(key: string): any | null {
+		const cached = this.cache.get(key);
+		if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+			return cached.data;
+		}
+		this.cache.delete(key);
+		return null;
+	}
+
+	private setCached(key: string, data: any): void {
+		this.cache.set(key, { data, timestamp: Date.now() });
+		
+		// Clean old entries if cache gets too large
+		if (this.cache.size > 100) {
+			const now = Date.now();
+			for (const [k, v] of this.cache.entries()) {
+				if (now - v.timestamp > this.CACHE_TTL) {
+					this.cache.delete(k);
+				}
+			}
+		}
+	}
+
+	// Format helper for better output presentation
+	private formatOutput(data: any, format: "summary" | "detailed" | "raw" = "summary"): string {
+		if (format === "raw") {
+			return typeof data === "string" ? data : JSON.stringify(data, null, 2);
+		}
+		
+		if (format === "summary" && data.summaries) {
+			return data.summaries.map((item: any, index: number) => 
+				`${index + 1}. ${item.title || "No title"}\n` +
+				`   ID: ${item.id}\n` +
+				`   Authors: ${item.authors || "N/A"}\n` +
+				`   Date: ${item.pubDate || "N/A"}\n` +
+				`   Source: ${item.source || "N/A"}`
+			).join("\n\n");
+		}
+		
+		if (format === "detailed") {
+			// Recursive formatter for nested objects
+			const formatObject = (obj: any, indent: number = 0): string => {
+				const spaces = " ".repeat(indent);
+				if (typeof obj !== "object" || obj === null) {
+					return `${spaces}${obj}`;
+				}
+				
+				return Object.entries(obj)
+					.filter(([key]) => key !== "raw") // Skip raw data in detailed view
+					.map(([key, value]) => {
+						if (Array.isArray(value)) {
+							return `${spaces}${key}: [${value.length} items]\n${value.map(v => formatObject(v, indent + 2)).join("\n")}`;
+						} else if (typeof value === "object") {
+							return `${spaces}${key}:\n${formatObject(value, indent + 2)}`;
+						}
+						return `${spaces}${key}: ${value}`;
+					})
+					.join("\n");
+			};
+			
+			return formatObject(data);
+		}
+		
+		return this.formatOutput(data, "raw");
+	}
+
 	async init() {
 		// API Key Status - Check NCBI API key configuration and rate limits
 		this.server.tool(
@@ -201,6 +393,202 @@ node test-rate-limits.js`
 						}
 					]
 				};
+			}
+		);
+
+		// Enhanced Search and Summary - Combines ESearch and ESummary for efficiency
+		this.server.tool(
+			"search_and_summarize",
+			{
+				db: z.string().default("pubmed").describe("Database to search"),
+				term: z.string().describe("Search query"),
+				retmax: z.number().optional().default(20).describe("Maximum results to return"),
+				sort: z.string().optional().describe("Sort method (e.g., 'relevance', 'pub_date')"),
+				mindate: z.string().optional().describe("Minimum date (YYYY/MM/DD)"),
+				maxdate: z.string().optional().describe("Maximum date (YYYY/MM/DD)"),
+				field: z.string().optional().describe("Search field limitation"),
+				output_format: z.enum(["summary", "detailed", "ids_only"]).default("summary").describe("Output format"),
+			},
+			async ({ db, term, retmax, sort, mindate, maxdate, field, output_format }) => {
+				try {
+					// Check cache first
+					const cacheKey = `search_summary:${db}:${term}:${retmax}:${sort}`;
+					const cached = this.getCached(cacheKey);
+					if (cached) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `[CACHED] ${cached}`
+								}
+							]
+						};
+					}
+
+					// Build optimized query
+					const optimizedQuery = this.buildOptimizedQuery(term, field, { mindate, maxdate });
+					
+					// Step 1: Search
+					const searchParams = new URLSearchParams({
+						db: db || "pubmed",
+						term: optimizedQuery,
+						retmax: retmax?.toString() || "20",
+						tool: this.defaultTool,
+						email: this.defaultEmail,
+						retmode: "json",
+						usehistory: "y"
+					});
+
+					if (sort) searchParams.append("sort", sort);
+					if (mindate) searchParams.append("mindate", mindate);
+					if (maxdate) searchParams.append("maxdate", maxdate);
+
+					const searchUrl = this.buildUrl("esearch.fcgi", searchParams);
+					const searchResponse = await fetch(searchUrl);
+					const searchData = await this.parseAndStructureResponse(searchResponse, "ESearch", "json");
+
+					if (!searchData || !searchData.esearchresult || searchData.esearchresult.count === "0") {
+						const result = "No results found for your search query.";
+						this.setCached(cacheKey, result);
+						return {
+							content: [
+								{
+									type: "text",
+									text: result
+								}
+							]
+						};
+					}
+
+					const idList = searchData.esearchresult.idlist || [];
+					const totalCount = parseInt(searchData.esearchresult.count || "0");
+					
+					if (output_format === "ids_only") {
+						const result = `Found ${totalCount} results. Showing first ${idList.length} IDs:\n${idList.join(", ")}`;
+						this.setCached(cacheKey, result);
+						return {
+							content: [
+								{
+									type: "text",
+									text: result
+								}
+							]
+						};
+					}
+
+					// Step 2: Get summaries using history
+					const summaryParams = new URLSearchParams({
+						db: db || "pubmed",
+						query_key: searchData.esearchresult.querykey || "1",
+						WebEnv: searchData.esearchresult.webenv || "",
+						retmax: retmax?.toString() || "20",
+						tool: this.defaultTool,
+						email: this.defaultEmail,
+						retmode: "xml",
+						version: "2.0"
+					});
+
+					const summaryUrl = this.buildUrl("esummary.fcgi", summaryParams);
+					const summaryResponse = await fetch(summaryUrl);
+					const summaryData = await this.parseAndStructureResponse(summaryResponse, "ESummary", "xml");
+
+					// Format output
+					let result = `Search Results: ${totalCount} total (showing ${Math.min(retmax || 20, totalCount)})\n\n`;
+					
+					if (output_format === "detailed") {
+						result += this.formatOutput(summaryData, "detailed");
+					} else {
+						result += this.formatOutput(summaryData, "summary");
+					}
+
+					// Add search metadata
+					result += `\n\n---\nSearch Query: "${term}"`;
+					if (field) result += ` in field: ${field}`;
+					if (mindate || maxdate) result += `\nDate Range: ${mindate || "*"} to ${maxdate || "*"}`;
+					if (sort) result += `\nSorted by: ${sort}`;
+
+					this.setCached(cacheKey, result);
+					
+					return {
+						content: [
+							{
+								type: "text",
+								text: result
+							}
+						]
+					};
+				} catch (error) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Error in Search and Summarize: ${error instanceof Error ? error.message : String(error)}`
+							}
+						]
+					};
+				}
+			}
+		);
+
+		// Batch Fetch - Efficiently fetch multiple records
+		this.server.tool(
+			"batch_fetch",
+			{
+				db: z.string().default("pubmed").describe("Database name"),
+				ids: z.string().describe("Comma-separated list of IDs (or 'file:path' to read from file)"),
+				rettype: z.string().optional().describe("Retrieval type"),
+				retmode: z.string().optional().describe("Retrieval mode"),
+				batch_size: z.number().optional().default(200).describe("Number of IDs per batch"),
+			},
+			async ({ db, ids, rettype, retmode, batch_size }) => {
+				try {
+					// Parse IDs
+					let idList: string[];
+					if (ids.startsWith("file:")) {
+						// In a real implementation, you'd read from file
+						throw new Error("File reading not implemented in this environment");
+					} else {
+						idList = ids.split(',').map(id => id.trim()).filter(id => id !== '');
+					}
+
+					if (idList.length === 0) {
+						throw new Error("No valid IDs provided");
+					}
+
+					const results = await this.processBatchIds(idList, batch_size, async (batch) => {
+						const params = new URLSearchParams({
+							db: db || "pubmed",
+							id: batch.join(','),
+							tool: this.defaultTool,
+							email: this.defaultEmail,
+						});
+
+						if (rettype) params.append("rettype", rettype);
+						if (retmode) params.append("retmode", retmode);
+
+						const url = this.buildUrl("efetch.fcgi", params);
+						const response = await fetch(url);
+						return this.parseResponse(response, "Batch EFetch");
+					});
+
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Batch Fetch Results:\n\nProcessed ${idList.length} IDs in ${results.length} batches.\n\n${results.map((r, i) => `Batch ${i + 1}:\n${r}`).join("\n\n---\n\n")}`
+							}
+						]
+					};
+				} catch (error) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Error in Batch Fetch: ${error instanceof Error ? error.message : String(error)}`
+							}
+						]
+					};
+				}
 			}
 		);
 
@@ -306,13 +694,32 @@ node test-rate-limits.js`
 
 					const url = this.buildUrl("esearch.fcgi", params);
 					const response = await fetch(url);
-					const data = await this.parseResponse(response, "ESearch");
+					const structuredData = await this.parseAndStructureResponse(response, "ESearch", retmode || "xml");
+
+					// Format the response based on the data structure
+					let formattedResult = `ESearch Results for "${term}" in ${db}:\n\n`;
+					
+					if (structuredData.count !== undefined) {
+						formattedResult += `Total Results: ${structuredData.count}\n`;
+						if (structuredData.ids && structuredData.ids.length > 0) {
+							formattedResult += `IDs Retrieved: ${structuredData.ids.length}\n`;
+							formattedResult += `ID List: ${structuredData.ids.join(", ")}\n`;
+						}
+						if (structuredData.webEnv) {
+							formattedResult += `\nWeb Environment: ${structuredData.webEnv}\n`;
+							formattedResult += `Query Key: ${structuredData.queryKey ?? "N/A"}\n`;
+							formattedResult += `(Use these for history-based operations)\n`;
+						}
+					} else {
+						// Fallback to raw output if structure parsing failed
+						formattedResult += structuredData.raw || JSON.stringify(structuredData);
+					}
 
 					return {
 						content: [
 							{
 								type: "text",
-								text: `ESearch Results:\n\n${data}`
+								text: formattedResult
 							}
 						]
 					};
@@ -373,13 +780,24 @@ node test-rate-limits.js`
 
 					const url = this.buildUrl("esummary.fcgi", params);
 					const response = await fetch(url);
-					const data = await this.parseResponse(response, "ESummary");
+					const structuredData = await this.parseAndStructureResponse(response, "ESummary", retmode || "xml");
+
+					// Format the response based on the data structure
+					let formattedResult = `ESummary Results for ${cleanIds.length} IDs in ${db}:\n\n`;
+					
+					if (structuredData.summaries && structuredData.summaries.length > 0) {
+						formattedResult += this.formatOutput(structuredData, "summary");
+						formattedResult += `\n\nTotal summaries retrieved: ${structuredData.count}`;
+					} else {
+						// Fallback to raw output if structure parsing failed
+						formattedResult += structuredData.raw || JSON.stringify(structuredData);
+					}
 
 					return {
 						content: [
 							{
 								type: "text",
-								text: `ESummary Results:\n\n${data}`
+								text: formattedResult
 							}
 						]
 					};
@@ -926,11 +1344,34 @@ node test-rate-limits.js`
 					const response = await fetch(url, { method: 'POST' });
 					const data = await this.parseResponse(response, "BLAST Submit");
 
+					// Extract RID from response
+					const ridMatch = data.match(/RID = (\w+)/);
+					const estimatedTimeMatch = data.match(/RTOE = (\d+)/);
+					
+					if (ridMatch) {
+						const rid = ridMatch[1];
+						const estimatedTime = estimatedTimeMatch ? parseInt(estimatedTimeMatch[1]) : 60;
+						
+						return {
+							content: [
+								{
+									type: "text",
+									text: `BLAST Search Submitted Successfully!\n\n` +
+										`Request ID (RID): ${rid}\n` +
+										`Estimated completion time: ${estimatedTime} seconds\n\n` +
+										`To retrieve results, use blast_get with RID: ${rid}\n\n` +
+										`Note: The search is processing. Wait at least ${Math.ceil(estimatedTime / 2)} seconds before checking results.`
+								}
+							]
+						};
+					}
+
+					// Fallback if RID not found
 					return {
 						content: [
 							{
 								type: "text",
-								text: `BLAST Submit Results:\n\n${data}`
+								text: `BLAST Submit Response:\n\n${data}`
 							}
 						]
 					};
@@ -995,19 +1436,61 @@ node test-rate-limits.js`
 									content: [
 										{
 											type: "text",
-											text: `BLAST search with RID ${rid} is still running after ${maxRetries} attempts. Please try again later.\n\n${data}`
+											text: `BLAST search status: Still processing\n\n` +
+												`RID: ${rid}\n` +
+												`Status: WAITING\n` +
+												`Attempts: ${maxRetries}/${maxRetries}\n\n` +
+												`The search is taking longer than expected. You can:\n` +
+												`1. Try again in a few minutes using the same RID\n` +
+												`2. Check the NCBI BLAST website directly with your RID`
 										}
 									]
 								};
 							}
 						}
+
+						// Check for completion status
+						if (data.includes("Status=READY")) {
+							// Parse key information from BLAST results
+							const hitCountMatch = data.match(/<Hits>.*?<\/Hits>/s);
+							const numHits = hitCountMatch ? (hitCountMatch[0].match(/<Hit>/g) || []).length : 0;
+							
+							return {
+								content: [
+									{
+										type: "text",
+										text: `BLAST Results Retrieved Successfully!\n\n` +
+											`RID: ${rid}\n` +
+											`Status: READY\n` +
+											`Number of hits found: ${numHits}\n` +
+											`Format: ${format_type}\n\n` +
+											`Full Results:\n${"=".repeat(50)}\n${data}`
+									}
+								]
+							};
+						}
+
+						// Check for errors
+						if (data.includes("Status=FAILED") || data.includes("Error")) {
+							return {
+								content: [
+									{
+										type: "text",
+										text: `BLAST search failed!\n\n` +
+											`RID: ${rid}\n` +
+											`Status: FAILED\n\n` +
+											`Error details:\n${data}`
+									}
+								]
+							};
+						}
 		
-						// If results are ready or an error occurred, return the response
+						// Unknown status - return raw response
 						return {
 							content: [
 								{
 									type: "text",
-									text: `BLAST Results:\n\n${data}`
+									text: `BLAST Results (Unknown Status):\n\n${data}`
 								}
 							]
 						};
@@ -1067,11 +1550,51 @@ node test-rate-limits.js`
 					const response = await fetch(url);
 					const data = await this.parseResponse(response, "PubChem Compound");
 
+					// Format based on operation and output format
+					let formattedResult = `PubChem Compound Results\n`;
+					formattedResult += `Identifier: ${identifier} (${identifier_type})\n`;
+					formattedResult += `Operation: ${operation}\n\n`;
+
+					if (output_format === "json" && operation === "property") {
+						try {
+							const jsonData = JSON.parse(data);
+							if (jsonData.PropertyTable && jsonData.PropertyTable.Properties) {
+								const props = jsonData.PropertyTable.Properties[0];
+								formattedResult += "Properties:\n";
+								for (const [key, value] of Object.entries(props)) {
+									if (key !== "CID") {
+										formattedResult += `  ${key}: ${value}\n`;
+									}
+								}
+							}
+						} catch {
+							formattedResult += data;
+						}
+					} else if (output_format === "json" && operation === "synonyms") {
+						try {
+							const jsonData = JSON.parse(data);
+							if (jsonData.InformationList && jsonData.InformationList.Information) {
+								const info = jsonData.InformationList.Information[0];
+								if (info.Synonym) {
+									formattedResult += `Found ${info.Synonym.length} synonyms:\n`;
+									formattedResult += info.Synonym.slice(0, 10).join(", ");
+									if (info.Synonym.length > 10) {
+										formattedResult += `, ... (and ${info.Synonym.length - 10} more)`;
+									}
+								}
+							}
+						} catch {
+							formattedResult += data;
+						}
+					} else {
+						formattedResult += data;
+					}
+
 					return {
 						content: [
 							{
 								type: "text",
-								text: `PubChem Compound Results:\n\n${data}`
+								text: formattedResult
 							}
 						]
 					};
@@ -1189,6 +1712,140 @@ node test-rate-limits.js`
 							{
 								type: "text",
 								text: `Error in PubChem BioAssay: ${error instanceof Error ? error.message : String(error)}`
+							}
+						]
+					};
+				}
+			}
+		);
+
+		// PubChem Quick Lookup - Combined search and property retrieval
+		this.server.tool(
+			"pubchem_quick_lookup",
+			{
+				query: z.string().describe("Compound name, SMILES, InChI, or CID"),
+				properties: z.array(z.string()).optional().default(["MolecularFormula", "MolecularWeight", "IUPACName", "CanonicalSMILES", "IsomericSMILES"]).describe("Properties to retrieve"),
+				include_synonyms: z.boolean().optional().default(true).describe("Include common synonyms"),
+				include_description: z.boolean().optional().default(true).describe("Include compound description"),
+			},
+			async ({ query, properties, include_synonyms, include_description }) => {
+				try {
+					// Determine identifier type
+					let identifierType = "name"; // default
+					let identifier = query.trim();
+					
+					// Check if it's a CID (all digits)
+					if (/^\d+$/.test(identifier)) {
+						identifierType = "cid";
+					} else if (identifier.startsWith("InChI=")) {
+						identifierType = "inchi";
+					} else if (identifier.includes("[") && identifier.includes("]")) {
+						identifierType = "smiles";
+					}
+
+					// Step 1: Get CID if needed
+					let cid = identifier;
+					if (identifierType !== "cid") {
+						const cidUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/${identifierType}/${encodeURIComponent(identifier)}/cids/JSON`;
+						const cidResponse = await fetch(cidUrl);
+						
+						if (!cidResponse.ok) {
+							throw new Error(`Compound not found: ${query}`);
+						}
+						
+						const cidData = await cidResponse.json();
+						if (cidData.IdentifierList && cidData.IdentifierList.CID && cidData.IdentifierList.CID.length > 0) {
+							cid = cidData.IdentifierList.CID[0].toString();
+						} else {
+							throw new Error(`No compounds found for: ${query}`);
+						}
+					}
+
+					// Parallel requests for efficiency
+					const requests: Promise<any>[] = [];
+					
+					// Get properties
+					if (properties && properties.length > 0) {
+						const propsUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/property/${properties.join(",")}/JSON`;
+						requests.push(fetch(propsUrl).then(r => r.json()));
+					}
+					
+					// Get synonyms
+					if (include_synonyms) {
+						const synonymsUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/synonyms/JSON`;
+						requests.push(fetch(synonymsUrl).then(r => r.json()));
+					}
+					
+					// Get description
+					if (include_description) {
+						const descUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/description/JSON`;
+						requests.push(fetch(descUrl).then(r => r.json()).catch(() => null));
+					}
+
+					const results = await Promise.all(requests);
+					
+					// Format results
+					let formattedResult = `PubChem Quick Lookup Results\n`;
+					formattedResult += `${"=".repeat(50)}\n\n`;
+					formattedResult += `Query: "${query}"\n`;
+					formattedResult += `PubChem CID: ${cid}\n`;
+					formattedResult += `Direct Link: https://pubchem.ncbi.nlm.nih.gov/compound/${cid}\n\n`;
+
+					// Add properties
+					if (properties && properties.length > 0 && results[0]) {
+						const propsData = results[0];
+						if (propsData.PropertyTable && propsData.PropertyTable.Properties && propsData.PropertyTable.Properties[0]) {
+							const props = propsData.PropertyTable.Properties[0];
+							formattedResult += "Chemical Properties:\n";
+							for (const [key, value] of Object.entries(props)) {
+								if (key !== "CID") {
+									formattedResult += `  ${key}: ${value}\n`;
+								}
+							}
+							formattedResult += "\n";
+						}
+					}
+
+					// Add synonyms
+					if (include_synonyms && results[1]) {
+						const synonymsData = results[include_description ? 1 : 1];
+						if (synonymsData.InformationList && synonymsData.InformationList.Information && synonymsData.InformationList.Information[0]) {
+							const synonymsList = synonymsData.InformationList.Information[0].Synonym || [];
+							formattedResult += `Common Names (${Math.min(10, synonymsList.length)} of ${synonymsList.length}):\n`;
+							formattedResult += `  ${synonymsList.slice(0, 10).join(", ")}\n\n`;
+						}
+					}
+
+					// Add description
+					if (include_description && results[results.length - 1]) {
+						const descData = results[results.length - 1];
+						if (descData && descData.InformationList && descData.InformationList.Information) {
+							const info = descData.InformationList.Information[0];
+							if (info && info.Description) {
+								formattedResult += "Description:\n";
+								formattedResult += `  ${info.Description.substring(0, 500)}`;
+								if (info.Description.length > 500) {
+									formattedResult += "...";
+								}
+								formattedResult += "\n";
+							}
+						}
+					}
+
+					return {
+						content: [
+							{
+								type: "text",
+								text: formattedResult
+							}
+						]
+					};
+				} catch (error) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Error in PubChem Quick Lookup: ${error instanceof Error ? error.message : String(error)}`
 							}
 						]
 					};

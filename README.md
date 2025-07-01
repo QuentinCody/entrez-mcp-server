@@ -2,6 +2,8 @@
 
 A comprehensive Model Context Protocol (MCP) server providing access to NCBI's complete suite of APIs including E-utilities, BLAST, PubChem, and PMC services.
 
+**✨ Now with enhanced performance, intelligent caching, batch processing, and improved output formatting!** See [IMPROVEMENTS.md](IMPROVEMENTS.md) for details.
+
 ## 🚀 Quick Start
 
 **Works out of the box** - no configuration required!
@@ -20,6 +22,15 @@ npm start
 - **Optional Performance Boost**: Add your free NCBI API key for 3x better rate limits
 - **Rate Limiting**: Built-in respect for NCBI rate limits (3/sec → 10/sec with API key)
 - **User-Friendly**: Designed for both technical and non-technical users
+- **🆕 Enhanced Tools**: 
+  - `search_and_summarize` - Combined search + summary for efficiency
+  - `batch_fetch` - Process hundreds of IDs efficiently
+  - `pubchem_quick_lookup` - All-in-one chemical compound info
+- **🆕 Smart Features**:
+  - Intelligent response caching (5-minute TTL)
+  - Automatic batch processing with rate limit compliance
+  - Structured data extraction from XML/JSON responses
+  - Enhanced error messages with actionable feedback
 
 ## 📊 Performance
 
