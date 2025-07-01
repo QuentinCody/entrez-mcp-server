@@ -25,19 +25,23 @@ export class EntrezMCP extends McpAgent {
 	public static currentEnv: Env | undefined;
 
 	// Helper method to get API key status for user feedback
-	private getApiKeyStatus(): { hasKey: boolean; message: string; rateLimit: string } {
+	private getApiKeyStatus(): {
+		hasKey: boolean;
+		message: string;
+		rateLimit: string;
+	} {
 		const apiKey = this.getApiKey();
 		if (apiKey) {
 			return {
 				hasKey: true,
 				message: `✅ NCBI API Key configured (${apiKey.substring(0, 8)}...)`,
-				rateLimit: "10 requests/second"
+				rateLimit: "10 requests/second",
 			};
 		} else {
 			return {
 				hasKey: false,
 				message: "⚠️  No NCBI API Key found - using default rate limits",
-				rateLimit: "3 requests/second"
+				rateLimit: "3 requests/second",
 			};
 		}
 	}
@@ -46,90 +50,172 @@ export class EntrezMCP extends McpAgent {
 	private isValidDatabase(db: string): boolean {
 		// Valid databases list sourced from current EInfo endpoint (2025-06)
 		const validDbs = [
-			"pubmed", "pmc", "protein", "nuccore", "ipg", "nucleotide", "structure", "genome",
-			"annotinfo", "assembly", "bioproject", "biosample", "blastdbinfo", "books", "cdd",
-			"clinvar", "gap", "gapplus", "grasp", "dbvar", "gene", "gds", "geoprofiles", "medgen",
-			"mesh", "nlmcatalog", "omim", "orgtrack", "proteinclusters", "pcassay", "protfam",
-			"pccompound", "pcsubstance", "seqannot", "snp", "sra", "taxonomy", "biocollections", "gtr",
+			"pubmed",
+			"pmc",
+			"protein",
+			"nuccore",
+			"ipg",
+			"nucleotide",
+			"structure",
+			"genome",
+			"annotinfo",
+			"assembly",
+			"bioproject",
+			"biosample",
+			"blastdbinfo",
+			"books",
+			"cdd",
+			"clinvar",
+			"gap",
+			"gapplus",
+			"grasp",
+			"dbvar",
+			"gene",
+			"gds",
+			"geoprofiles",
+			"medgen",
+			"mesh",
+			"nlmcatalog",
+			"omim",
+			"orgtrack",
+			"proteinclusters",
+			"pcassay",
+			"protfam",
+			"pccompound",
+			"pcsubstance",
+			"seqannot",
+			"snp",
+			"sra",
+			"taxonomy",
+			"biocollections",
+			"gtr",
 			// Additional databases observed via EInfo but previously missing
-			"pubmedhealth", "nucgss", "nucest", "biosystems", "unigene", "popset", "probe"
+			"pubmedhealth",
+			"nucgss",
+			"nucest",
+			"biosystems",
+			"unigene",
+			"popset",
+			"probe",
 		];
 		return validDbs.includes(db.toLowerCase());
 	}
 
 	// Helper method to parse and validate response
-	private async parseResponse(response: Response, toolName: string): Promise<string> {
+	private async parseResponse(
+		response: Response,
+		toolName: string,
+		expectJson = false,
+	): Promise<string> {
 		if (!response.ok) {
 			const errorText = await response.text();
-			throw new Error(`${toolName} request failed: ${response.status} ${response.statusText}. Response: ${errorText}`);
+			throw new Error(
+				`${toolName} request failed: ${response.status} ${response.statusText}. Response: ${errorText}`,
+			);
 		}
 
 		// For BLAST results, check if the response is compressed
 		if (toolName.includes("BLAST Get")) {
-			const contentType = response.headers.get('content-type') || '';
-			const contentEncoding = response.headers.get('content-encoding') || '';
-			
+			const contentType = response.headers.get("content-type") || "";
+			const contentEncoding = response.headers.get("content-encoding") || "";
+
 			// If it's a ZIP file or compressed content, try to extract readable data
-			if (contentType.includes('application/zip') || contentType.includes('application/x-zip') || 
-				response.headers.get('content-disposition')?.includes('.zip') ||
-				contentEncoding.includes('gzip') || contentEncoding.includes('deflate')) {
-				
+			if (
+				contentType.includes("application/zip") ||
+				contentType.includes("application/x-zip") ||
+				response.headers.get("content-disposition")?.includes(".zip") ||
+				contentEncoding.includes("gzip") ||
+				contentEncoding.includes("deflate")
+			) {
 				const arrayBuffer = await response.arrayBuffer();
 
 				// Handle gzip/deflate first
-				if (contentEncoding === 'gzip' || contentEncoding === 'deflate') {
+				if (contentEncoding === "gzip" || contentEncoding === "deflate") {
 					const decompressionStream = new DecompressionStream(contentEncoding);
-					const decompressedStream = new Response(arrayBuffer).body!.pipeThrough(decompressionStream);
+					const decompressedStream = new Response(
+						arrayBuffer,
+					).body!.pipeThrough(decompressionStream);
 					return await new Response(decompressedStream).text();
 				}
 
 				// Check for ZIP file signature ('PK') and handle it
 				const firstBytes = new Uint8Array(arrayBuffer.slice(0, 4));
-				if (firstBytes[0] === 0x50 && firstBytes[1] === 0x4B) { // ZIP file signature
+				if (firstBytes[0] === 0x50 && firstBytes[1] === 0x4b) {
+					// ZIP file signature
 					try {
 						const zip = await JSZip.loadAsync(arrayBuffer);
 						const fileNames = Object.keys(zip.files);
 						if (fileNames.length > 0) {
 							// Find the primary XML file, often with an XInclude
-							const primaryXmlFile = fileNames.find(name => name.endsWith('.xml') && !name.includes('_'));
-							const primaryFile = primaryXmlFile ? zip.file(primaryXmlFile) : zip.file(fileNames[0]);
-							
+							const primaryXmlFile = fileNames.find(
+								(name) => name.endsWith(".xml") && !name.includes("_"),
+							);
+							const primaryFile = primaryXmlFile
+								? zip.file(primaryXmlFile)
+								: zip.file(fileNames[0]);
+
 							if (primaryFile) {
 								const primaryContent = await primaryFile.async("string");
-								
+
 								// Check for XInclude and resolve it
-								const includeMatch = primaryContent.match(/<xi:include\s+href="([^"]+)"/);
+								const includeMatch = primaryContent.match(
+									/<xi:include\s+href="([^"]+)"/,
+								);
 								if (includeMatch && includeMatch[1]) {
 									const includedFileName = includeMatch[1];
 									const includedFile = zip.file(includedFileName);
 									if (includedFile) {
 										return await includedFile.async("string"); // Return the content of the included file
 									} else {
-										throw new Error(`XInclude file '${includedFileName}' not found in the BLAST archive.`);
+										throw new Error(
+											`XInclude file '${includedFileName}' not found in the BLAST archive.`,
+										);
 									}
 								}
-								
+
 								return primaryContent; // Return primary content if no include found
 							}
 						}
 						throw new Error("ZIP archive from BLAST was empty.");
 					} catch (zipError) {
-						throw new Error(`Failed to decompress BLAST result archive: ${zipError instanceof Error ? zipError.message : String(zipError)}`);
+						throw new Error(
+							`Failed to decompress BLAST result archive: ${zipError instanceof Error ? zipError.message : String(zipError)}`,
+						);
 					}
 				}
 			}
 		}
 
-		const data = await response.text();
-		
+		let data = await response.text();
+
+		if (
+			expectJson ||
+			response.headers.get("content-type")?.includes("application/json")
+		) {
+			try {
+				const json = JSON.parse(data);
+				data = JSON.stringify(json, null, 2);
+			} catch {
+				// ignore parse errors
+			}
+		}
+
 		// Skip error checking for BLAST and PMC tools as they have different response formats
-		if (toolName.includes("BLAST") || toolName.includes("PMC") || toolName.includes("PubChem")) {
+		if (
+			toolName.includes("BLAST") ||
+			toolName.includes("PMC") ||
+			toolName.includes("PubChem")
+		) {
 			return data;
 		}
-		
+
 		// Check for common NCBI error patterns (only for E-utilities tools). Perform case-insensitive scan.
 		const lowerData = data.toLowerCase();
-		if (lowerData.includes("<error>") || lowerData.includes('"error"') || lowerData.includes("error")) {
+		if (
+			lowerData.includes("<error>") ||
+			lowerData.includes('"error"') ||
+			lowerData.includes("error")
+		) {
 			// Capture NCBI error messages accurately
 			const errorMatch =
 				// Match XML error tags like <Error> or <ERROR>
@@ -152,7 +238,7 @@ export class EntrezMCP extends McpAgent {
 		// Remove empty parameters
 		const cleanParams = new URLSearchParams();
 		params.forEach((value, key) => {
-			if (value && value.trim() !== '') {
+			if (value && value.trim() !== "") {
 				cleanParams.append(key, value.trim());
 			}
 		});
@@ -166,15 +252,12 @@ export class EntrezMCP extends McpAgent {
 
 	async init() {
 		// API Key Status - Check NCBI API key configuration and rate limits
-		this.server.tool(
-			"api_key_status",
-			{},
-			async () => {
-				const status = this.getApiKeyStatus();
-				
-				const helpMessage = status.hasKey 
-					? `Your NCBI API key is properly configured and active! You can make up to ${status.rateLimit}.`
-					: `No API key configured. You're limited to ${status.rateLimit}. 
+		this.server.tool("api_key_status", {}, async () => {
+			const status = this.getApiKeyStatus();
+
+			const helpMessage = status.hasKey
+				? `Your NCBI API key is properly configured and active! You can make up to ${status.rateLimit}.`
+				: `No API key configured. You're limited to ${status.rateLimit}. 
 
 To get 3x better performance:
 1. Get your free API key: https://ncbiinsights.ncbi.nlm.nih.gov/2017/11/02/new-api-keys-for-the-e-utilities/
@@ -184,11 +267,11 @@ To get 3x better performance:
 
 See API_KEY_SETUP.md for detailed instructions.`;
 
-				return {
-					content: [
-						{
-							type: "text",
-							text: `NCBI API Key Status Report
+			return {
+				content: [
+					{
+						type: "text",
+						text: `NCBI API Key Status Report
 ================================
 
 ${status.message}
@@ -197,20 +280,31 @@ Rate Limit: ${status.rateLimit}
 ${helpMessage}
 
 Need help? Run the rate limit tester:
-node test-rate-limits.js`
-						}
-					]
-				};
-			}
-		);
+node test-rate-limits.js`,
+					},
+				],
+			};
+		});
 
 		// EInfo - Get metadata about an Entrez database
 		this.server.tool(
 			"einfo",
 			{
-				db: z.string().optional().describe("Database name (optional). If not provided, returns list of all databases"),
-				version: z.string().optional().describe("Version 2.0 for enhanced XML output"),
-				retmode: z.enum(["xml", "json"]).optional().default("xml").describe("Output format"),
+				db: z
+					.string()
+					.optional()
+					.describe(
+						"Database name (optional). If not provided, returns list of all databases",
+					),
+				version: z
+					.string()
+					.optional()
+					.describe("Version 2.0 for enhanced XML output"),
+				retmode: z
+					.enum(["xml", "json"])
+					.optional()
+					.default("xml")
+					.describe("Output format"),
 			},
 			async ({ db, version, retmode }) => {
 				try {
@@ -222,35 +316,63 @@ node test-rate-limits.js`
 					const params = new URLSearchParams({
 						tool: this.defaultTool,
 						email: this.defaultEmail,
-						retmode: retmode || "xml"
+						retmode: retmode || "xml",
 					});
 
 					if (db) params.append("db", db);
 					if (version) params.append("version", version);
 
 					const url = this.buildUrl("einfo.fcgi", params);
-					const response = await fetch(url);
-					const data = await this.parseResponse(response, "EInfo");
+					const response = await fetch(url, {
+						headers: {
+							Accept: retmode === "json" ? "application/json" : "*/*",
+						},
+					});
+					const data = await this.parseResponse(
+						response,
+						"EInfo",
+						retmode === "json",
+					);
+
+					let outputText = `EInfo Results:\n\n${data}`;
+					if (retmode === "json") {
+						try {
+							const json = JSON.parse(data);
+							const dblist = json.einforesult?.dblist || json.dbinfo?.dblist;
+							if (Array.isArray(dblist)) {
+								outputText = `Databases (${dblist.length}): ${dblist.join(", ")}\n\nFull JSON:\n${JSON.stringify(json, null, 2)}`;
+							}
+						} catch {}
+					}
 
 					return {
 						content: [
 							{
 								type: "text",
-								text: `EInfo Results:\n\n${data}`
-							}
-						]
+								text: outputText,
+							},
+						],
+					};
+
+					return {
+						content: [
+							{
+								type: "text",
+								text: `EInfo Results:\n\n${data}`,
+							},
+						],
 					};
 				} catch (error) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Error in EInfo: ${error instanceof Error ? error.message : String(error)}`
-							}
-						]
+								text: `Error in EInfo: ${error instanceof Error ? error.message : String(error)}`,
+							},
+						],
 					};
 				}
-			}
+			},
 		);
 
 		// ESearch - Run a text or UID-based query
@@ -260,20 +382,50 @@ node test-rate-limits.js`
 				db: z.string().default("pubmed").describe("Database to search"),
 				term: z.string().describe("Entrez text query"),
 				retstart: z.number().optional().describe("Starting position (0-based)"),
-				retmax: z.number().optional().default(20).describe("Maximum number of UIDs to retrieve"),
-				sort: z.string().optional().describe("Sort method (e.g., 'relevance', 'pub_date')"),
+				retmax: z
+					.number()
+					.optional()
+					.default(20)
+					.describe("Maximum number of UIDs to retrieve"),
+				sort: z
+					.string()
+					.optional()
+					.describe("Sort method (e.g., 'relevance', 'pub_date')"),
 				field: z.string().optional().describe("Search field limitation"),
-				usehistory: z.enum(["y", "n"]).optional().describe("Use Entrez History server"),
-				datetype: z.string().optional().describe("Date type for date filtering"),
+				usehistory: z
+					.enum(["y", "n"])
+					.optional()
+					.describe("Use Entrez History server"),
+				datetype: z
+					.string()
+					.optional()
+					.describe("Date type for date filtering"),
 				reldate: z.number().optional().describe("Relative date (last n days)"),
 				mindate: z.string().optional().describe("Minimum date (YYYY/MM/DD)"),
 				maxdate: z.string().optional().describe("Maximum date (YYYY/MM/DD)"),
-				retmode: z.enum(["xml", "json"]).optional().default("xml").describe("Output format"),
+				retmode: z
+					.enum(["xml", "json"])
+					.optional()
+					.default("xml")
+					.describe("Output format"),
 			},
-			async ({ db, term, retstart, retmax, sort, field, usehistory, datetype, reldate, mindate, maxdate, retmode }) => {
+			async ({
+				db,
+				term,
+				retstart,
+				retmax,
+				sort,
+				field,
+				usehistory,
+				datetype,
+				reldate,
+				mindate,
+				maxdate,
+				retmode,
+			}) => {
 				try {
 					// Validate inputs
-					if (!term || term.trim() === '') {
+					if (!term || term.trim() === "") {
 						throw new Error("Search term cannot be empty");
 					}
 					if (db && !this.isValidDatabase(db)) {
@@ -291,42 +443,58 @@ node test-rate-limits.js`
 						term: term.trim(),
 						tool: this.defaultTool,
 						email: this.defaultEmail,
-						retmode: retmode || "xml"
+						retmode: retmode || "xml",
 					});
 
-					if (retstart !== undefined) params.append("retstart", retstart.toString());
+					if (retstart !== undefined)
+						params.append("retstart", retstart.toString());
 					if (retmax !== undefined) params.append("retmax", retmax.toString());
 					if (sort) params.append("sort", sort);
 					if (field) params.append("field", field);
 					if (usehistory) params.append("usehistory", usehistory);
 					if (datetype) params.append("datetype", datetype);
-					if (reldate !== undefined) params.append("reldate", reldate.toString());
+					if (reldate !== undefined)
+						params.append("reldate", reldate.toString());
 					if (mindate) params.append("mindate", mindate);
 					if (maxdate) params.append("maxdate", maxdate);
 
 					const url = this.buildUrl("esearch.fcgi", params);
-					const response = await fetch(url);
-					const data = await this.parseResponse(response, "ESearch");
+					const response = await fetch(url, {
+						headers: {
+							Accept: retmode === "json" ? "application/json" : "*/*",
+						},
+					});
+					const data = await this.parseResponse(
+						response,
+						"ESearch",
+						retmode === "json",
+					);
+
+					let outputText = `ESearch Results:\n\n${data}`;
+					if (retmode === "json") {
+						try {
+							const json = JSON.parse(data);
+							const count = json.esearchresult?.count ?? "?";
+							const ids =
+								json.esearchresult?.idlist?.slice(0, 20).join(", ") ?? "";
+							outputText = `Count: ${count}\nIDs: ${ids}\n\nFull JSON:\n${JSON.stringify(json, null, 2)}`;
+						} catch {}
+					}
 
 					return {
-						content: [
-							{
-								type: "text",
-								text: `ESearch Results:\n\n${data}`
-							}
-						]
+						content: [{ type: "text", text: outputText }],
 					};
 				} catch (error) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Error in ESearch: ${error instanceof Error ? error.message : String(error)}`
-							}
-						]
+								text: `Error in ESearch: ${error instanceof Error ? error.message : String(error)}`,
+							},
+						],
 					};
 				}
-			}
+			},
 		);
 
 		// ESummary - Retrieve concise document summaries for UIDs
@@ -338,12 +506,16 @@ node test-rate-limits.js`
 				retstart: z.number().optional().describe("Starting position"),
 				retmax: z.number().optional().describe("Maximum number of summaries"),
 				version: z.string().optional().describe("Version 2.0 for enhanced XML"),
-				retmode: z.enum(["xml", "json"]).optional().default("xml").describe("Output format"),
+				retmode: z
+					.enum(["xml", "json"])
+					.optional()
+					.default("xml")
+					.describe("Output format"),
 			},
 			async ({ db, id, retstart, retmax, version, retmode }) => {
 				try {
 					// Validate inputs
-					if (!id || id.trim() === '') {
+					if (!id || id.trim() === "") {
 						throw new Error("ID parameter cannot be empty");
 					}
 					if (db && !this.isValidDatabase(db)) {
@@ -351,7 +523,10 @@ node test-rate-limits.js`
 					}
 
 					// Clean and validate IDs
-					const cleanIds = id.split(',').map(i => i.trim()).filter(i => i !== '');
+					const cleanIds = id
+						.split(",")
+						.map((i) => i.trim())
+						.filter((i) => i !== "");
 					if (cleanIds.length === 0) {
 						throw new Error("No valid IDs provided");
 					}
@@ -361,39 +536,56 @@ node test-rate-limits.js`
 
 					const params = new URLSearchParams({
 						db: db || "pubmed",
-						id: cleanIds.join(','),
+						id: cleanIds.join(","),
 						tool: this.defaultTool,
 						email: this.defaultEmail,
-						retmode: retmode || "xml"
+						retmode: retmode || "xml",
 					});
 
-					if (retstart !== undefined) params.append("retstart", retstart.toString());
+					if (retstart !== undefined)
+						params.append("retstart", retstart.toString());
 					if (retmax !== undefined) params.append("retmax", retmax.toString());
 					if (version) params.append("version", version);
 
 					const url = this.buildUrl("esummary.fcgi", params);
-					const response = await fetch(url);
-					const data = await this.parseResponse(response, "ESummary");
+					const response = await fetch(url, {
+						headers: {
+							Accept: retmode === "json" ? "application/json" : "*/*",
+						},
+					});
+					const data = await this.parseResponse(
+						response,
+						"ESummary",
+						retmode === "json",
+					);
+
+					let outputText = `ESummary Results:\n\n${data}`;
+					if (retmode === "json") {
+						try {
+							const json = JSON.parse(data);
+							const uids: string[] = json.result?.uids || [];
+							const titles = uids
+								.slice(0, 3)
+								.map((id) => json.result[id]?.title)
+								.filter(Boolean);
+							outputText = `UIDs: ${uids.join(", ")}\nTitles: ${titles.join(" | ")}\n\nFull JSON:\n${JSON.stringify(json, null, 2)}`;
+						} catch {}
+					}
 
 					return {
-						content: [
-							{
-								type: "text",
-								text: `ESummary Results:\n\n${data}`
-							}
-						]
+						content: [{ type: "text", text: outputText }],
 					};
 				} catch (error) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Error in ESummary: ${error instanceof Error ? error.message : String(error)}`
-							}
-						]
+								text: `Error in ESummary: ${error instanceof Error ? error.message : String(error)}`,
+							},
+						],
 					};
 				}
-			}
+			},
 		);
 
 		// EFetch - Download complete data records
@@ -402,19 +594,48 @@ node test-rate-limits.js`
 			{
 				db: z.string().default("pubmed").describe("Database name"),
 				id: z.string().describe("Comma-separated list of UIDs"),
-				rettype: z.string().optional().describe("Retrieval type (e.g., 'abstract', 'fasta', 'gb')"),
-				retmode: z.string().optional().describe("Retrieval mode (e.g., 'text', 'xml')"),
+				rettype: z
+					.string()
+					.optional()
+					.describe("Retrieval type (e.g., 'abstract', 'fasta', 'gb')"),
+				retmode: z
+					.string()
+					.optional()
+					.describe("Retrieval mode (e.g., 'text', 'xml')"),
 				retstart: z.number().optional().describe("Starting position"),
 				retmax: z.number().optional().describe("Maximum number of records"),
-				strand: z.enum(["1", "2"]).optional().describe("DNA strand (1=plus, 2=minus)"),
-				seq_start: z.number().optional().describe("First sequence base to retrieve"),
-				seq_stop: z.number().optional().describe("Last sequence base to retrieve"),
-				complexity: z.enum(["0", "1", "2", "3", "4"]).optional().describe("Data complexity level"),
+				strand: z
+					.enum(["1", "2"])
+					.optional()
+					.describe("DNA strand (1=plus, 2=minus)"),
+				seq_start: z
+					.number()
+					.optional()
+					.describe("First sequence base to retrieve"),
+				seq_stop: z
+					.number()
+					.optional()
+					.describe("Last sequence base to retrieve"),
+				complexity: z
+					.enum(["0", "1", "2", "3", "4"])
+					.optional()
+					.describe("Data complexity level"),
 			},
-			async ({ db, id, rettype, retmode, retstart, retmax, strand, seq_start, seq_stop, complexity }) => {
+			async ({
+				db,
+				id,
+				rettype,
+				retmode,
+				retstart,
+				retmax,
+				strand,
+				seq_start,
+				seq_stop,
+				complexity,
+			}) => {
 				try {
 					// Validate inputs
-					if (!id || id.trim() === '') {
+					if (!id || id.trim() === "") {
 						throw new Error("ID parameter cannot be empty");
 					}
 					if (db && !this.isValidDatabase(db)) {
@@ -422,23 +643,36 @@ node test-rate-limits.js`
 					}
 
 					// Clean and validate IDs
-					const cleanIds = id.split(',').map(i => i.trim()).filter(i => i !== '');
+					const cleanIds = id
+						.split(",")
+						.map((i) => i.trim())
+						.filter((i) => i !== "");
 					if (cleanIds.length === 0) {
 						throw new Error("No valid IDs provided");
 					}
 
 					// Database-specific validation
 					const dbName = db || "pubmed";
-					if (dbName === "pubmed" && (rettype === "fasta" || seq_start || seq_stop)) {
-						throw new Error("FASTA format and sequence parameters not supported for PubMed database");
+					if (
+						dbName === "pubmed" &&
+						(rettype === "fasta" || seq_start || seq_stop)
+					) {
+						throw new Error(
+							"FASTA format and sequence parameters not supported for PubMed database",
+						);
 					}
-					if ((dbName === "protein" || dbName === "nuccore") && rettype === "abstract") {
-						throw new Error("Abstract format not supported for sequence databases");
+					if (
+						(dbName === "protein" || dbName === "nuccore") &&
+						rettype === "abstract"
+					) {
+						throw new Error(
+							"Abstract format not supported for sequence databases",
+						);
 					}
 
 					const params = new URLSearchParams({
 						db: dbName,
-						id: cleanIds.join(','),
+						id: cleanIds.join(","),
 						tool: this.defaultTool,
 						email: this.defaultEmail,
 					});
@@ -447,54 +681,74 @@ node test-rate-limits.js`
 					if (rettype) {
 						// Validate rettype for specific databases
 						const validRetTypes: Record<string, string[]> = {
-							"pubmed": ["abstract", "medline", "xml"],
-							"pmc": ["medline", "xml"],
-							"protein": ["fasta", "gb", "gp", "xml"],
-							"nuccore": ["fasta", "gb", "xml"],
-							"nucleotide": ["fasta", "gb", "xml"]
+							pubmed: ["abstract", "medline", "xml"],
+							pmc: ["medline", "xml"],
+							protein: ["fasta", "gb", "gp", "xml"],
+							nuccore: ["fasta", "gb", "xml"],
+							nucleotide: ["fasta", "gb", "xml"],
 						};
-						
-						if (validRetTypes[dbName] && !validRetTypes[dbName].includes(rettype)) {
-							throw new Error(`Invalid rettype '${rettype}' for database '${dbName}'. Valid types: ${validRetTypes[dbName].join(', ')}`);
+
+						if (
+							validRetTypes[dbName] &&
+							!validRetTypes[dbName].includes(rettype)
+						) {
+							throw new Error(
+								`Invalid rettype '${rettype}' for database '${dbName}'. Valid types: ${validRetTypes[dbName].join(", ")}`,
+							);
 						}
 						params.append("rettype", rettype);
 					}
-					
+
 					if (retmode) params.append("retmode", retmode);
-					if (retstart !== undefined) params.append("retstart", retstart.toString());
+					if (retstart !== undefined)
+						params.append("retstart", retstart.toString());
 					if (retmax !== undefined) params.append("retmax", retmax.toString());
-					
+
 					// Sequence-specific parameters (only for sequence databases)
-					if (dbName === "protein" || dbName === "nuccore" || dbName === "nucleotide") {
+					if (
+						dbName === "protein" ||
+						dbName === "nuccore" ||
+						dbName === "nucleotide"
+					) {
 						if (strand) params.append("strand", strand);
-						if (seq_start !== undefined) params.append("seq_start", seq_start.toString());
-						if (seq_stop !== undefined) params.append("seq_stop", seq_stop.toString());
+						if (seq_start !== undefined)
+							params.append("seq_start", seq_start.toString());
+						if (seq_stop !== undefined)
+							params.append("seq_stop", seq_stop.toString());
 						if (complexity) params.append("complexity", complexity);
 					}
 
 					const url = this.buildUrl("efetch.fcgi", params);
-					const response = await fetch(url);
-					const data = await this.parseResponse(response, "EFetch");
+					const response = await fetch(url, {
+						headers: {
+							Accept: retmode === "json" ? "application/json" : "*/*",
+						},
+					});
+					const data = await this.parseResponse(
+						response,
+						"EFetch",
+						retmode === "json",
+					);
 
 					return {
 						content: [
 							{
 								type: "text",
-								text: `EFetch Results:\n\n${data}`
-							}
-						]
+								text: `EFetch Results:\n\n${data}`,
+							},
+						],
 					};
 				} catch (error) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Error in EFetch: ${error instanceof Error ? error.message : String(error)}`
-							}
-						]
+								text: `Error in EFetch: ${error instanceof Error ? error.message : String(error)}`,
+							},
+						],
 					};
 				}
-			}
+			},
 		);
 
 		// ELink - Find UIDs linked/related within same or different databases
@@ -504,20 +758,54 @@ node test-rate-limits.js`
 				db: z.string().default("pubmed").describe("Target database"),
 				dbfrom: z.string().default("pubmed").describe("Source database"),
 				id: z.string().describe("Comma-separated list of UIDs"),
-				cmd: z.enum(["neighbor", "neighbor_score", "neighbor_history", "acheck", "ncheck", "lcheck", "llinks", "llinkslib", "prlinks"]).optional().default("neighbor").describe("ELink command mode"),
-				linkname: z.string().optional().describe("Specific link name to retrieve"),
+				cmd: z
+					.enum([
+						"neighbor",
+						"neighbor_score",
+						"neighbor_history",
+						"acheck",
+						"ncheck",
+						"lcheck",
+						"llinks",
+						"llinkslib",
+						"prlinks",
+					])
+					.optional()
+					.default("neighbor")
+					.describe("ELink command mode"),
+				linkname: z
+					.string()
+					.optional()
+					.describe("Specific link name to retrieve"),
 				term: z.string().optional().describe("Entrez query to limit output"),
 				holding: z.string().optional().describe("LinkOut provider name"),
 				datetype: z.string().optional().describe("Date type for filtering"),
 				reldate: z.number().optional().describe("Relative date (last n days)"),
 				mindate: z.string().optional().describe("Minimum date (YYYY/MM/DD)"),
 				maxdate: z.string().optional().describe("Maximum date (YYYY/MM/DD)"),
-				retmode: z.enum(["xml", "json", "ref"]).optional().default("xml").describe("Output format"),
+				retmode: z
+					.enum(["xml", "json", "ref"])
+					.optional()
+					.default("xml")
+					.describe("Output format"),
 			},
-			async ({ db, dbfrom, id, cmd, linkname, term, holding, datetype, reldate, mindate, maxdate, retmode }) => {
+			async ({
+				db,
+				dbfrom,
+				id,
+				cmd,
+				linkname,
+				term,
+				holding,
+				datetype,
+				reldate,
+				mindate,
+				maxdate,
+				retmode,
+			}) => {
 				try {
 					// Validate inputs
-					if (!id || id.trim() === '') {
+					if (!id || id.trim() === "") {
 						throw new Error("ID parameter cannot be empty");
 					}
 					if (db && !this.isValidDatabase(db)) {
@@ -528,7 +816,10 @@ node test-rate-limits.js`
 					}
 
 					// Clean and validate IDs
-					const cleanIds = id.split(',').map(i => i.trim()).filter(i => i !== '' && !isNaN(Number(i)));
+					const cleanIds = id
+						.split(",")
+						.map((i) => i.trim())
+						.filter((i) => i !== "" && !isNaN(Number(i)));
 					if (cleanIds.length === 0) {
 						throw new Error("No valid numeric IDs provided");
 					}
@@ -536,10 +827,10 @@ node test-rate-limits.js`
 					const params = new URLSearchParams({
 						db: db || "pubmed",
 						dbfrom: dbfrom || "pubmed",
-						id: cleanIds.join(','),
+						id: cleanIds.join(","),
 						tool: this.defaultTool,
 						email: this.defaultEmail,
-						retmode: retmode || "xml"
+						retmode: retmode || "xml",
 					});
 
 					if (cmd) params.append("cmd", cmd);
@@ -547,33 +838,42 @@ node test-rate-limits.js`
 					if (term) params.append("term", term);
 					if (holding) params.append("holding", holding);
 					if (datetype) params.append("datetype", datetype);
-					if (reldate !== undefined) params.append("reldate", reldate.toString());
+					if (reldate !== undefined)
+						params.append("reldate", reldate.toString());
 					if (mindate) params.append("mindate", mindate);
 					if (maxdate) params.append("maxdate", maxdate);
 
 					const url = this.buildUrl("elink.fcgi", params);
-					const response = await fetch(url);
-					const data = await this.parseResponse(response, "ELink");
+					const response = await fetch(url, {
+						headers: {
+							Accept: retmode === "json" ? "application/json" : "*/*",
+						},
+					});
+					const data = await this.parseResponse(
+						response,
+						"ELink",
+						retmode === "json",
+					);
 
 					return {
 						content: [
 							{
 								type: "text",
-								text: `ELink Results:\n\n${data}`
-							}
-						]
+								text: `ELink Results:\n\n${data}`,
+							},
+						],
 					};
 				} catch (error) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Error in ELink: ${error instanceof Error ? error.message : String(error)}`
-							}
-						]
+								text: `Error in ELink: ${error instanceof Error ? error.message : String(error)}`,
+							},
+						],
 					};
 				}
-			}
+			},
 		);
 
 		// EPost - Upload UIDs to Entrez History for later use
@@ -582,12 +882,15 @@ node test-rate-limits.js`
 			{
 				db: z.string().default("pubmed").describe("Database name"),
 				id: z.string().describe("Comma-separated list of UIDs to upload"),
-				WebEnv: z.string().optional().describe("Existing Web Environment to append to"),
+				WebEnv: z
+					.string()
+					.optional()
+					.describe("Existing Web Environment to append to"),
 			},
 			async ({ db, id, WebEnv }) => {
 				try {
 					// Validate inputs
-					if (!id || id.trim() === '') {
+					if (!id || id.trim() === "") {
 						throw new Error("ID parameter cannot be empty");
 					}
 					if (db && !this.isValidDatabase(db)) {
@@ -595,14 +898,17 @@ node test-rate-limits.js`
 					}
 
 					// Clean and validate IDs
-					const cleanIds = id.split(',').map(i => i.trim()).filter(i => i !== '' && !isNaN(Number(i)));
+					const cleanIds = id
+						.split(",")
+						.map((i) => i.trim())
+						.filter((i) => i !== "" && !isNaN(Number(i)));
 					if (cleanIds.length === 0) {
 						throw new Error("No valid numeric IDs provided");
 					}
 
 					const params = new URLSearchParams({
 						db: db || "pubmed",
-						id: cleanIds.join(','),
+						id: cleanIds.join(","),
 						tool: this.defaultTool,
 						email: this.defaultEmail,
 					});
@@ -610,46 +916,48 @@ node test-rate-limits.js`
 					if (WebEnv) params.append("WebEnv", WebEnv);
 
 					const url = this.buildUrl("epost.fcgi", params);
-					const response = await fetch(url);
+					const response = await fetch(url, { headers: { Accept: "*/*" } });
 					const data = await this.parseResponse(response, "EPost");
 
 					return {
 						content: [
 							{
 								type: "text",
-								text: `EPost Results:\n\n${data}`
-							}
-						]
+								text: `EPost Results:\n\n${data}`,
+							},
+						],
 					};
 				} catch (error) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Error in EPost: ${error instanceof Error ? error.message : String(error)}`
-							}
-						]
+								text: `Error in EPost: ${error instanceof Error ? error.message : String(error)}`,
+							},
+						],
 					};
 				}
-			}
+			},
 		);
 
 		// EGQuery - Run a global query across all Entrez databases
 		this.server.tool(
 			"egquery",
 			{
-				term: z.string().describe("Entrez text query to search across all databases"),
+				term: z
+					.string()
+					.describe("Entrez text query to search across all databases"),
 			},
 			async ({ term }) => {
 				try {
 					// Validate input
-					if (!term || term.trim() === '') {
+					if (!term || term.trim() === "") {
 						throw new Error("Search term cannot be empty");
 					}
 
 					// Clean and prepare the term - egquery is very sensitive to formatting
-					const cleanTerm = term.trim().replace(/\s+/g, ' ');
-					
+					const cleanTerm = term.trim().replace(/\s+/g, " ");
+
 					// Try multiple parameter combinations as egquery is notoriously finicky
 					const paramSets = [
 						// Standard approach with retmode
@@ -657,7 +965,7 @@ node test-rate-limits.js`
 							term: cleanTerm,
 							tool: this.defaultTool,
 							email: this.defaultEmail,
-							retmode: "xml"
+							retmode: "xml",
 						}),
 						// Alternative with simpler parameters
 						new URLSearchParams({
@@ -670,8 +978,8 @@ node test-rate-limits.js`
 							term: encodeURIComponent(cleanTerm),
 							tool: this.defaultTool,
 							email: this.defaultEmail,
-							retmode: "xml"
-						})
+							retmode: "xml",
+						}),
 					];
 
 					let diagnosticInfo = `EGQuery Diagnostic Information:\n`;
@@ -679,23 +987,27 @@ node test-rate-limits.js`
 					diagnosticInfo += `Cleaned term: "${cleanTerm}"\n`;
 					diagnosticInfo += `Attempting ${paramSets.length} different parameter combinations...\n\n`;
 
-					for (let paramIndex = 0; paramIndex < paramSets.length; paramIndex++) {
+					for (
+						let paramIndex = 0;
+						paramIndex < paramSets.length;
+						paramIndex++
+					) {
 						const params = paramSets[paramIndex];
 						// Use direct URL construction for gquery since it's not under eutils path
-					const gqueryUrl = `https://eutils.ncbi.nlm.nih.gov/gquery?${params}`;
-					const url = gqueryUrl;
-						
+						const gqueryUrl = `https://eutils.ncbi.nlm.nih.gov/gquery?${params}`;
+						const url = gqueryUrl;
+
 						diagnosticInfo += `Attempt ${paramIndex + 1}: ${url}\n`;
 
 						// Try with retries for each parameter set
 						for (let attempt = 1; attempt <= 2; attempt++) {
 							try {
 								const response = await fetch(url, {
-									method: 'GET',
+									method: "GET",
 									headers: {
-										'User-Agent': 'entrez-mcp-server/1.0.0',
-										'Accept': 'text/xml, application/xml, text/plain, */*'
-									}
+										"User-Agent": "entrez-mcp-server/1.0.0",
+										Accept: "text/xml, application/xml, text/plain, */*",
+									},
 								});
 
 								diagnosticInfo += `Response status: ${response.status} ${response.statusText}\n`;
@@ -704,34 +1016,49 @@ node test-rate-limits.js`
 								if (!response.ok) {
 									const errorText = await response.text();
 									diagnosticInfo += `Error response body: ${errorText.substring(0, 500)}...\n`;
-									throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
+									throw new Error(
+										`HTTP ${response.status}: ${errorText.substring(0, 200)}`,
+									);
 								}
 
 								const data = await response.text();
 								diagnosticInfo += `Response length: ${data.length} characters\n`;
-								
+
 								// Enhanced error detection for egquery
-								if (data.includes("<ERROR>") || data.includes('"ERROR"') || 
-									data.includes("error") || data.includes("Error") ||
-									data.includes("internal error") || data.includes("reference =")) {
-									
-									const errorMatch = data.match(/<ERROR>(.*?)<\/ERROR>/) || 
-													  data.match(/"ERROR":"([^"]*)"/) || 
-													  data.match(/error['":]?\s*([^"',}\n]*)/i) ||
-													  data.match(/reference\s*=\s*([^\s,}\n]*)/i);
-									
+								if (
+									data.includes("<ERROR>") ||
+									data.includes('"ERROR"') ||
+									data.includes("error") ||
+									data.includes("Error") ||
+									data.includes("internal error") ||
+									data.includes("reference =")
+								) {
+									const errorMatch =
+										data.match(/<ERROR>(.*?)<\/ERROR>/) ||
+										data.match(/"ERROR":"([^"]*)"/) ||
+										data.match(/error['":]?\s*([^"',}\n]*)/i) ||
+										data.match(/reference\s*=\s*([^\s,}\n]*)/i);
+
 									if (errorMatch) {
 										diagnosticInfo += `NCBI Error detected: ${errorMatch[0]}\n`;
-										throw new Error(`NCBI EGQuery error: ${errorMatch[1] || errorMatch[0]}`);
+										throw new Error(
+											`NCBI EGQuery error: ${errorMatch[1] || errorMatch[0]}`,
+										);
 									} else {
 										diagnosticInfo += `Generic error detected in response\n`;
-										throw new Error(`NCBI EGQuery error: ${data.substring(0, 200)}`);
+										throw new Error(
+											`NCBI EGQuery error: ${data.substring(0, 200)}`,
+										);
 									}
 								}
 
 								// Check for valid egquery response structure
-								if (!data.includes("<eGQueryResult>") && !data.includes('"Result"') && 
-									!data.includes("Result") && data.length < 50) {
+								if (
+									!data.includes("<eGQueryResult>") &&
+									!data.includes('"Result"') &&
+									!data.includes("Result") &&
+									data.length < 50
+								) {
 									diagnosticInfo += `Response appears invalid or too short\n`;
 									throw new Error("Invalid or empty response from EGQuery");
 								}
@@ -742,16 +1069,17 @@ node test-rate-limits.js`
 									content: [
 										{
 											type: "text",
-											text: `EGQuery Results:\n\n${data}\n\n--- Debug Info ---\n${diagnosticInfo}`
-										}
-									]
+											text: `EGQuery Results:\n\n${data}\n\n--- Debug Info ---\n${diagnosticInfo}`,
+										},
+									],
 								};
-
 							} catch (error) {
 								diagnosticInfo += `Attempt ${attempt} failed: ${error instanceof Error ? error.message : String(error)}\n`;
 								if (attempt < 2) {
 									diagnosticInfo += `Waiting before retry...\n`;
-									await new Promise(resolve => setTimeout(resolve, 1500 * attempt));
+									await new Promise((resolve) =>
+										setTimeout(resolve, 1500 * attempt),
+									);
 								}
 							}
 						}
@@ -760,11 +1088,17 @@ node test-rate-limits.js`
 
 					// If all attempts failed, try a fallback approach using esearch on each database
 					diagnosticInfo += `All direct egquery attempts failed. Attempting fallback approach...\n`;
-					
+
 					try {
-						const majorDatabases = ["pubmed", "pmc", "protein", "nuccore", "gene"];
+						const majorDatabases = [
+							"pubmed",
+							"pmc",
+							"protein",
+							"nuccore",
+							"gene",
+						];
 						const fallbackResults = [];
-						
+
 						for (const db of majorDatabases) {
 							try {
 								const searchParams = new URLSearchParams({
@@ -773,15 +1107,17 @@ node test-rate-limits.js`
 									retmax: "0", // Just get counts
 									tool: this.defaultTool,
 									email: this.defaultEmail,
-									retmode: "json"
+									retmode: "json",
 								});
-								
+
 								const searchUrl = this.buildUrl("esearch.fcgi", searchParams);
 								const searchResponse = await fetch(searchUrl);
-								
+
 								if (searchResponse.ok) {
 									const searchData = await searchResponse.text();
-									const countMatch = searchData.match(/"count":"(\d+)"/) || searchData.match(/<Count>(\d+)<\/Count>/);
+									const countMatch =
+										searchData.match(/"count":"(\d+)"/) ||
+										searchData.match(/<Count>(\d+)<\/Count>/);
 									const count = countMatch ? countMatch[1] : "0";
 									fallbackResults.push(`${db}: ${count} results`);
 								}
@@ -789,16 +1125,16 @@ node test-rate-limits.js`
 								fallbackResults.push(`${db}: error`);
 							}
 						}
-						
+
 						if (fallbackResults.length > 0) {
 							diagnosticInfo += `Fallback results obtained\n`;
 							return {
 								content: [
 									{
 										type: "text",
-										text: `EGQuery Results (via fallback method):\n\nCross-database search counts for "${cleanTerm}":\n${fallbackResults.join('\n')}\n\nNote: EGQuery service unavailable, results obtained via individual database searches.\n\n--- Debug Info ---\n${diagnosticInfo}`
-									}
-								]
+										text: `EGQuery Results (via fallback method):\n\nCross-database search counts for "${cleanTerm}":\n${fallbackResults.join("\n")}\n\nNote: EGQuery service unavailable, results obtained via individual database searches.\n\n--- Debug Info ---\n${diagnosticInfo}`,
+									},
+								],
 							};
 						}
 					} catch (fallbackError) {
@@ -806,19 +1142,20 @@ node test-rate-limits.js`
 					}
 
 					// Complete failure
-					throw new Error(`All EGQuery approaches failed. NCBI EGQuery service may be experiencing issues.`);
-
+					throw new Error(
+						`All EGQuery approaches failed. NCBI EGQuery service may be experiencing issues.`,
+					);
 				} catch (error) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Error in EGQuery: ${error instanceof Error ? error.message : String(error)}\n\nThis appears to be an ongoing issue with NCBI's EGQuery service. The service is known to be unstable and frequently returns internal server errors.\n\nWorkaround: Use individual database searches with esearch for each database of interest.`
-							}
-						]
+								text: `Error in EGQuery: ${error instanceof Error ? error.message : String(error)}\n\nThis appears to be an ongoing issue with NCBI's EGQuery service. The service is known to be unstable and frequently returns internal server errors.\n\nWorkaround: Use individual database searches with esearch for each database of interest.`,
+							},
+						],
 					};
 				}
-			}
+			},
 		);
 
 		// ESpell - Return spelling suggestions for search terms
@@ -831,7 +1168,7 @@ node test-rate-limits.js`
 			async ({ db, term }) => {
 				try {
 					// Validate inputs
-					if (!term || term.trim() === '') {
+					if (!term || term.trim() === "") {
 						throw new Error("Search term cannot be empty");
 					}
 					if (db && !this.isValidDatabase(db)) {
@@ -853,49 +1190,122 @@ node test-rate-limits.js`
 						content: [
 							{
 								type: "text",
-								text: `ESpell Results:\n\n${data}`
-							}
-						]
+								text: `ESpell Results:\n\n${data}`,
+							},
+						],
 					};
 				} catch (error) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Error in ESpell: ${error instanceof Error ? error.message : String(error)}`
-							}
-						]
+								text: `Error in ESpell: ${error instanceof Error ? error.message : String(error)}`,
+							},
+						],
 					};
 				}
-			}
+			},
 		);
 
 		// ===== BLAST URL API =====
-		
+
 		// BLAST Submit - Submit a BLAST search job
 		this.server.tool(
 			"blast_submit",
 			{
 				cmd: z.literal("Put").describe("Command to submit search"),
-				query: z.string().describe("Search query (FASTA sequence, accession, or GI)"),
-				database: z.string().describe("BLAST database name (e.g., nt, nr, swissprot)"),
-				program: z.enum(["blastn", "blastp", "blastx", "tblastn", "tblastx"]).describe("BLAST program"),
-				megablast: z.enum(["on", "off"]).optional().describe("Enable megablast for blastn"),
-				expect: z.number().optional().default(10).describe("Expect value threshold"),
-				filter: z.string().optional().describe("Low complexity filtering (L, F, or m+filter)"),
-				word_size: z.number().optional().describe("Word size for initial matches"),
-				gapcosts: z.string().optional().describe("Gap existence and extension costs (space-separated)"),
-				matrix: z.enum(["BLOSUM45", "BLOSUM50", "BLOSUM62", "BLOSUM80", "BLOSUM90", "PAM250", "PAM30", "PAM70"]).optional().describe("Scoring matrix"),
-				nucl_reward: z.number().optional().describe("Reward for matching nucleotides"),
-				nucl_penalty: z.number().optional().describe("Penalty for mismatching nucleotides"),
-				hitlist_size: z.number().optional().default(100).describe("Number of database sequences to keep"),
-				format_type: z.enum(["HTML", "Text", "XML2", "XML2_S", "JSON2", "JSON2_S", "SAM"]).optional().default("XML2").describe("Output format"),
-				descriptions: z.number().optional().default(100).describe("Number of descriptions to show"),
-				alignments: z.number().optional().default(100).describe("Number of alignments to show"),
+				query: z
+					.string()
+					.describe("Search query (FASTA sequence, accession, or GI)"),
+				database: z
+					.string()
+					.describe("BLAST database name (e.g., nt, nr, swissprot)"),
+				program: z
+					.enum(["blastn", "blastp", "blastx", "tblastn", "tblastx"])
+					.describe("BLAST program"),
+				megablast: z
+					.enum(["on", "off"])
+					.optional()
+					.describe("Enable megablast for blastn"),
+				expect: z
+					.number()
+					.optional()
+					.default(10)
+					.describe("Expect value threshold"),
+				filter: z
+					.string()
+					.optional()
+					.describe("Low complexity filtering (L, F, or m+filter)"),
+				word_size: z
+					.number()
+					.optional()
+					.describe("Word size for initial matches"),
+				gapcosts: z
+					.string()
+					.optional()
+					.describe("Gap existence and extension costs (space-separated)"),
+				matrix: z
+					.enum([
+						"BLOSUM45",
+						"BLOSUM50",
+						"BLOSUM62",
+						"BLOSUM80",
+						"BLOSUM90",
+						"PAM250",
+						"PAM30",
+						"PAM70",
+					])
+					.optional()
+					.describe("Scoring matrix"),
+				nucl_reward: z
+					.number()
+					.optional()
+					.describe("Reward for matching nucleotides"),
+				nucl_penalty: z
+					.number()
+					.optional()
+					.describe("Penalty for mismatching nucleotides"),
+				hitlist_size: z
+					.number()
+					.optional()
+					.default(100)
+					.describe("Number of database sequences to keep"),
+				format_type: z
+					.enum(["HTML", "Text", "XML2", "XML2_S", "JSON2", "JSON2_S", "SAM"])
+					.optional()
+					.default("XML2")
+					.describe("Output format"),
+				descriptions: z
+					.number()
+					.optional()
+					.default(100)
+					.describe("Number of descriptions to show"),
+				alignments: z
+					.number()
+					.optional()
+					.default(100)
+					.describe("Number of alignments to show"),
 			},
-			async ({ cmd, query, database, program, megablast, expect, filter, word_size, gapcosts, matrix, nucl_reward, nucl_penalty, hitlist_size, format_type, descriptions, alignments }) => {
+			async ({
+				cmd,
+				query,
+				database,
+				program,
+				megablast,
+				expect,
+				filter,
+				word_size,
+				gapcosts,
+				matrix,
+				nucl_reward,
+				nucl_penalty,
+				hitlist_size,
+				format_type,
+				descriptions,
+				alignments,
+			}) => {
 				try {
-					if (!query || query.trim() === '') {
+					if (!query || query.trim() === "") {
 						throw new Error("Query sequence cannot be empty");
 					}
 
@@ -912,39 +1322,45 @@ node test-rate-limits.js`
 					if (megablast) params.append("MEGABLAST", megablast);
 					if (expect !== undefined) params.append("EXPECT", expect.toString());
 					if (filter) params.append("FILTER", filter);
-					if (word_size !== undefined) params.append("WORD_SIZE", word_size.toString());
+					if (word_size !== undefined)
+						params.append("WORD_SIZE", word_size.toString());
 					if (gapcosts) params.append("GAPCOSTS", gapcosts);
 					if (matrix) params.append("MATRIX", matrix);
-					if (nucl_reward !== undefined) params.append("NUCL_REWARD", nucl_reward.toString());
-					if (nucl_penalty !== undefined) params.append("NUCL_PENALTY", nucl_penalty.toString());
-					if (hitlist_size !== undefined) params.append("HITLIST_SIZE", hitlist_size.toString());
+					if (nucl_reward !== undefined)
+						params.append("NUCL_REWARD", nucl_reward.toString());
+					if (nucl_penalty !== undefined)
+						params.append("NUCL_PENALTY", nucl_penalty.toString());
+					if (hitlist_size !== undefined)
+						params.append("HITLIST_SIZE", hitlist_size.toString());
 					if (format_type) params.append("FORMAT_TYPE", format_type);
-					if (descriptions !== undefined) params.append("DESCRIPTIONS", descriptions.toString());
-					if (alignments !== undefined) params.append("ALIGNMENTS", alignments.toString());
+					if (descriptions !== undefined)
+						params.append("DESCRIPTIONS", descriptions.toString());
+					if (alignments !== undefined)
+						params.append("ALIGNMENTS", alignments.toString());
 
 					const url = `https://blast.ncbi.nlm.nih.gov/Blast.cgi?${params}`;
-					const response = await fetch(url, { method: 'POST' });
+					const response = await fetch(url, { method: "POST" });
 					const data = await this.parseResponse(response, "BLAST Submit");
 
 					return {
 						content: [
 							{
 								type: "text",
-								text: `BLAST Submit Results:\n\n${data}`
-							}
-						]
+								text: `BLAST Submit Results:\n\n${data}`,
+							},
+						],
 					};
 				} catch (error) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Error in BLAST Submit: ${error instanceof Error ? error.message : String(error)}`
-							}
-						]
+								text: `Error in BLAST Submit: ${error instanceof Error ? error.message : String(error)}`,
+							},
+						],
 					};
 				}
-			}
+			},
 		);
 
 		// BLAST Get - Retrieve BLAST search results
@@ -953,80 +1369,106 @@ node test-rate-limits.js`
 			{
 				cmd: z.literal("Get").describe("Command to get results"),
 				rid: z.string().describe("Request ID from BLAST submission"),
-				format_type: z.enum(["HTML", "Text", "XML2", "XML2_S", "JSON2", "JSON2_S", "SAM"]).optional().default("XML2").describe("Output format"),
-				descriptions: z.number().optional().default(100).describe("Number of descriptions to show"),
-				alignments: z.number().optional().default(100).describe("Number of alignments to show"),
-				alignment_view: z.enum(["Pairwise", "QueryAnchored", "FlatQueryAnchored", "Tabular"]).optional().describe("Alignment view format"),
+				format_type: z
+					.enum(["HTML", "Text", "XML2", "XML2_S", "JSON2", "JSON2_S", "SAM"])
+					.optional()
+					.default("XML2")
+					.describe("Output format"),
+				descriptions: z
+					.number()
+					.optional()
+					.default(100)
+					.describe("Number of descriptions to show"),
+				alignments: z
+					.number()
+					.optional()
+					.default(100)
+					.describe("Number of alignments to show"),
+				alignment_view: z
+					.enum(["Pairwise", "QueryAnchored", "FlatQueryAnchored", "Tabular"])
+					.optional()
+					.describe("Alignment view format"),
 			},
-			async ({ cmd, rid, format_type, descriptions, alignments, alignment_view }) => {
+			async ({
+				cmd,
+				rid,
+				format_type,
+				descriptions,
+				alignments,
+				alignment_view,
+			}) => {
 				try {
-					if (!rid || rid.trim() === '') {
+					if (!rid || rid.trim() === "") {
 						throw new Error("Request ID (RID) cannot be empty");
 					}
-		
+
 					const params = new URLSearchParams({
 						CMD: cmd,
 						RID: rid.trim(),
 					});
-		
+
 					if (format_type) params.append("FORMAT_TYPE", format_type);
-					if (descriptions !== undefined) params.append("DESCRIPTIONS", descriptions.toString());
-					if (alignments !== undefined) params.append("ALIGNMENTS", alignments.toString());
+					if (descriptions !== undefined)
+						params.append("DESCRIPTIONS", descriptions.toString());
+					if (alignments !== undefined)
+						params.append("ALIGNMENTS", alignments.toString());
 					if (alignment_view) params.append("ALIGNMENT_VIEW", alignment_view);
-		
+
 					const url = `https://blast.ncbi.nlm.nih.gov/Blast.cgi?${params}`;
-		
+
 					// Implement polling for BLAST results
 					const maxRetries = 15;
 					const retryDelay = 10000; // 10 seconds
-		
+
 					for (let i = 0; i < maxRetries; i++) {
 						const response = await fetch(url);
 						const data = await this.parseResponse(response, "BLAST Get");
-		
+
 						// Check if the search is still running
-						if (data.includes("Status=WAITING") || data.includes("Status=UNKNOWN")) {
+						if (
+							data.includes("Status=WAITING") ||
+							data.includes("Status=UNKNOWN")
+						) {
 							if (i < maxRetries - 1) {
 								// Wait before the next attempt
-								await new Promise(resolve => setTimeout(resolve, retryDelay));
+								await new Promise((resolve) => setTimeout(resolve, retryDelay));
 								continue;
 							} else {
 								return {
 									content: [
 										{
 											type: "text",
-											text: `BLAST search with RID ${rid} is still running after ${maxRetries} attempts. Please try again later.\n\n${data}`
-										}
-									]
+											text: `BLAST search with RID ${rid} is still running after ${maxRetries} attempts. Please try again later.\n\n${data}`,
+										},
+									],
 								};
 							}
 						}
-		
+
 						// If results are ready or an error occurred, return the response
 						return {
 							content: [
 								{
 									type: "text",
-									text: `BLAST Results:\n\n${data}`
-								}
-							]
+									text: `BLAST Results:\n\n${data}`,
+								},
+							],
 						};
 					}
-		
+
 					// This should not be reached, but as a fallback:
 					throw new Error("BLAST polling failed unexpectedly.");
-		
 				} catch (error) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Error in BLAST Get: ${error instanceof Error ? error.message : String(error)}`
-							}
-						]
+								text: `Error in BLAST Get: ${error instanceof Error ? error.message : String(error)}`,
+							},
+						],
 					};
 				}
-			}
+			},
 		);
 
 		// ===== PubChem PUG REST API =====
@@ -1035,20 +1477,45 @@ node test-rate-limits.js`
 		this.server.tool(
 			"pubchem_compound",
 			{
-				identifier_type: z.enum(["cid", "name", "smiles", "inchi", "inchikey", "formula"]).describe("Type of identifier"),
+				identifier_type: z
+					.enum(["cid", "name", "smiles", "inchi", "inchikey", "formula"])
+					.describe("Type of identifier"),
 				identifier: z.string().describe("Compound identifier"),
-				operation: z.enum(["record", "property", "synonyms", "classification", "conformers"]).default("record").describe("Type of data to retrieve"),
-				property_list: z.string().optional().describe("Comma-separated list of properties (for property operation)"),
-				output_format: z.enum(["json", "xml", "sdf", "csv", "png", "txt"]).default("json").describe("Output format"),
+				operation: z
+					.enum([
+						"record",
+						"property",
+						"synonyms",
+						"classification",
+						"conformers",
+					])
+					.default("record")
+					.describe("Type of data to retrieve"),
+				property_list: z
+					.string()
+					.optional()
+					.describe(
+						"Comma-separated list of properties (for property operation)",
+					),
+				output_format: z
+					.enum(["json", "xml", "sdf", "csv", "png", "txt"])
+					.default("json")
+					.describe("Output format"),
 			},
-			async ({ identifier_type, identifier, operation, property_list, output_format }) => {
+			async ({
+				identifier_type,
+				identifier,
+				operation,
+				property_list,
+				output_format,
+			}) => {
 				try {
-					if (!identifier || identifier.trim() === '') {
+					if (!identifier || identifier.trim() === "") {
 						throw new Error("Identifier cannot be empty");
 					}
 
 					let url = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/${identifier_type}/${encodeURIComponent(identifier.trim())}`;
-					
+
 					if (operation === "property" && property_list) {
 						url += `/property/${property_list}`;
 					} else if (operation !== "record") {
@@ -1064,47 +1531,69 @@ node test-rate-limits.js`
 					});
 					url += `?${params}`;
 
-					const response = await fetch(url);
-					const data = await this.parseResponse(response, "PubChem Compound");
+					const response = await fetch(url, {
+						headers: {
+							Accept: output_format === "json" ? "application/json" : "*/*",
+						},
+					});
+					const data = await this.parseResponse(
+						response,
+						"PubChem Compound",
+						output_format === "json",
+					);
 
-					return {
-						content: [
-							{
-								type: "text",
-								text: `PubChem Compound Results:\n\n${data}`
+					let outputText = `PubChem Compound Results:\n\n${data}`;
+					if (output_format === "json") {
+						try {
+							const json = JSON.parse(data);
+							const props = json.PropertyTable?.Properties?.[0];
+							if (props) {
+								const name = props.IUPACName || props.Title || props.Name;
+								outputText = `Compound: ${name || "unknown"}\n\nFull JSON:\n${JSON.stringify(json, null, 2)}`;
 							}
-						]
+						} catch {}
+					}
+					return {
+						content: [{ type: "text", text: outputText }],
 					};
 				} catch (error) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Error in PubChem Compound: ${error instanceof Error ? error.message : String(error)}`
-							}
-						]
+								text: `Error in PubChem Compound: ${error instanceof Error ? error.message : String(error)}`,
+							},
+						],
 					};
 				}
-			}
+			},
 		);
 
 		// PubChem Substance Lookup - Get substance information
 		this.server.tool(
 			"pubchem_substance",
 			{
-				identifier_type: z.enum(["sid", "sourceid", "name", "xref"]).describe("Type of identifier"),
+				identifier_type: z
+					.enum(["sid", "sourceid", "name", "xref"])
+					.describe("Type of identifier"),
 				identifier: z.string().describe("Substance identifier"),
-				operation: z.enum(["record", "synonyms", "classification", "xrefs"]).default("record").describe("Type of data to retrieve"),
-				output_format: z.enum(["json", "xml", "sdf", "csv", "txt"]).default("json").describe("Output format"),
+				operation: z
+					.enum(["record", "synonyms", "classification", "xrefs"])
+					.default("record")
+					.describe("Type of data to retrieve"),
+				output_format: z
+					.enum(["json", "xml", "sdf", "csv", "txt"])
+					.default("json")
+					.describe("Output format"),
 			},
 			async ({ identifier_type, identifier, operation, output_format }) => {
 				try {
-					if (!identifier || identifier.trim() === '') {
+					if (!identifier || identifier.trim() === "") {
 						throw new Error("Identifier cannot be empty");
 					}
 
 					let url = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/substance/${identifier_type}/${encodeURIComponent(identifier.trim())}`;
-					
+
 					if (operation !== "record") {
 						url += `/${operation}`;
 					}
@@ -1118,47 +1607,68 @@ node test-rate-limits.js`
 					});
 					url += `?${params}`;
 
-					const response = await fetch(url);
-					const data = await this.parseResponse(response, "PubChem Substance");
+					const response = await fetch(url, {
+						headers: {
+							Accept: output_format === "json" ? "application/json" : "*/*",
+						},
+					});
+					const data = await this.parseResponse(
+						response,
+						"PubChem Substance",
+						output_format === "json",
+					);
 
-					return {
-						content: [
-							{
-								type: "text",
-								text: `PubChem Substance Results:\n\n${data}`
+					let outputText = `PubChem Substance Results:\n\n${data}`;
+					if (output_format === "json") {
+						try {
+							const json = JSON.parse(data);
+							const sid = json.PC_Substances?.[0]?.sid?.id;
+							if (sid) {
+								outputText = `Substance ID: ${sid}\n\nFull JSON:\n${JSON.stringify(json, null, 2)}`;
 							}
-						]
+						} catch {}
+					}
+					return {
+						content: [{ type: "text", text: outputText }],
 					};
 				} catch (error) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Error in PubChem Substance: ${error instanceof Error ? error.message : String(error)}`
-							}
-						]
+								text: `Error in PubChem Substance: ${error instanceof Error ? error.message : String(error)}`,
+							},
+						],
 					};
 				}
-			}
+			},
 		);
 
 		// PubChem BioAssay Lookup - Get bioassay information
 		this.server.tool(
 			"pubchem_bioassay",
 			{
-				identifier_type: z.enum(["aid", "listkey", "target", "activity"]).describe("Type of identifier"),
+				identifier_type: z
+					.enum(["aid", "listkey", "target", "activity"])
+					.describe("Type of identifier"),
 				identifier: z.string().describe("BioAssay identifier"),
-				operation: z.enum(["record", "summary", "description", "targets", "aids"]).default("record").describe("Type of data to retrieve"),
-				output_format: z.enum(["json", "xml", "csv", "txt"]).default("json").describe("Output format"),
+				operation: z
+					.enum(["record", "summary", "description", "targets", "aids"])
+					.default("record")
+					.describe("Type of data to retrieve"),
+				output_format: z
+					.enum(["json", "xml", "csv", "txt"])
+					.default("json")
+					.describe("Output format"),
 			},
 			async ({ identifier_type, identifier, operation, output_format }) => {
 				try {
-					if (!identifier || identifier.trim() === '') {
+					if (!identifier || identifier.trim() === "") {
 						throw new Error("Identifier cannot be empty");
 					}
 
 					let url = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/assay/${identifier_type}/${encodeURIComponent(identifier.trim())}`;
-					
+
 					if (operation !== "record") {
 						url += `/${operation}`;
 					}
@@ -1172,51 +1682,86 @@ node test-rate-limits.js`
 					});
 					url += `?${params}`;
 
-					const response = await fetch(url);
-					const data = await this.parseResponse(response, "PubChem BioAssay");
+					const response = await fetch(url, {
+						headers: {
+							Accept: output_format === "json" ? "application/json" : "*/*",
+						},
+					});
+					const data = await this.parseResponse(
+						response,
+						"PubChem BioAssay",
+						output_format === "json",
+					);
 
-					return {
-						content: [
-							{
-								type: "text",
-								text: `PubChem BioAssay Results:\n\n${data}`
+					let outputText = `PubChem BioAssay Results:\n\n${data}`;
+					if (output_format === "json") {
+						try {
+							const json = JSON.parse(data);
+							const aid = json.AssayDescriptor?.aid?.id || json.AID;
+							if (aid) {
+								outputText = `BioAssay ID: ${aid}\n\nFull JSON:\n${JSON.stringify(json, null, 2)}`;
 							}
-						]
+						} catch {}
+					}
+					return {
+						content: [{ type: "text", text: outputText }],
 					};
 				} catch (error) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Error in PubChem BioAssay: ${error instanceof Error ? error.message : String(error)}`
-							}
-						]
+								text: `Error in PubChem BioAssay: ${error instanceof Error ? error.message : String(error)}`,
+							},
+						],
 					};
 				}
-			}
+			},
 		);
 
 		// PubChem Structure Search - Search by chemical structure
 		this.server.tool(
 			"pubchem_structure_search",
 			{
-				structure_type: z.enum(["smiles", "inchi", "sdf", "mol"]).describe("Type of structure input"),
+				structure_type: z
+					.enum(["smiles", "inchi", "sdf", "mol"])
+					.describe("Type of structure input"),
 				structure: z.string().describe("Chemical structure representation"),
-				search_type: z.enum(["identity", "substructure", "superstructure", "similarity"]).describe("Type of structure search"),
-				threshold: z.number().optional().default(90).describe("Similarity threshold (for similarity searches, 0-100)"),
-				max_records: z.number().optional().default(1000).describe("Maximum number of records to return"),
-				output_format: z.enum(["json", "xml", "sdf", "csv", "txt"]).default("json").describe("Output format"),
+				search_type: z
+					.enum(["identity", "substructure", "superstructure", "similarity"])
+					.describe("Type of structure search"),
+				threshold: z
+					.number()
+					.optional()
+					.default(90)
+					.describe("Similarity threshold (for similarity searches, 0-100)"),
+				max_records: z
+					.number()
+					.optional()
+					.default(1000)
+					.describe("Maximum number of records to return"),
+				output_format: z
+					.enum(["json", "xml", "sdf", "csv", "txt"])
+					.default("json")
+					.describe("Output format"),
 			},
-			async ({ structure_type, structure, search_type, threshold, max_records, output_format }) => {
+			async ({
+				structure_type,
+				structure,
+				search_type,
+				threshold,
+				max_records,
+				output_format,
+			}) => {
 				try {
-					if (!structure || structure.trim() === '') {
+					if (!structure || structure.trim() === "") {
 						throw new Error("Structure cannot be empty");
 					}
 
 					// Build the correct PubChem structure search URL
 					const baseUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound`;
 					let url: string;
-					
+
 					const params = new URLSearchParams({
 						tool: this.defaultTool,
 						email: this.defaultEmail,
@@ -1235,61 +1780,70 @@ node test-rate-limits.js`
 						// This implementation follows the PUG-REST documentation.
 						// e.g. /compound/substructure/smiles/cids/JSON
 						url = `${baseUrl}/${search_type}/${structure_type}/cids/${output_format.toUpperCase()}`;
-						
-						if (search_type === 'similarity' && threshold !== undefined) {
-							params.append('Threshold', threshold.toString());
+
+						if (search_type === "similarity" && threshold !== undefined) {
+							params.append("Threshold", threshold.toString());
 						}
 						if (max_records !== undefined) {
-							params.append('MaxRecords', max_records.toString());
+							params.append("MaxRecords", max_records.toString());
 						}
-						
+
 						url += `?${params}`;
 
 						response = await fetch(url, {
-							method: 'POST',
-							headers: { 'Content-Type': 'text/plain' },
-							body: structure.trim()
+							method: "POST",
+							headers: { "Content-Type": "text/plain" },
+							body: structure.trim(),
 						});
 					}
 
 					if (!response.ok) {
 						const errorText = await response.text();
-						throw new Error(`PubChem search failed: ${response.status} ${response.statusText}. Response: ${errorText}`);
+						throw new Error(
+							`PubChem search failed: ${response.status} ${response.statusText}. Response: ${errorText}`,
+						);
 					}
 
 					const responseData = await response.text();
-					
+
 					// Check if this is a waiting response or direct results
-					if (responseData.includes('"Waiting"') || responseData.includes('"Running"')) {
+					if (
+						responseData.includes('"Waiting"') ||
+						responseData.includes('"Running"')
+					) {
 						return {
 							content: [
 								{
 									type: "text",
-									text: `PubChem Structure Search Submitted:\n\nSearch is running. Please wait and try again with the returned key to get results.\n\n${responseData}`
-								}
-							]
+									text: `PubChem Structure Search Submitted:\n\nSearch is running. Please wait and try again with the returned key to get results.\n\n${responseData}`,
+								},
+							],
 						};
 					}
 
+					let outputText = `PubChem Structure Search Results:\n\n${responseData}`;
+					if (output_format === "json") {
+						try {
+							const json = JSON.parse(responseData);
+							const ids = json.IdentifierList?.CID?.slice(0, 20) || [];
+							outputText = `Matched CIDs: ${ids.join(", ")}\n\nFull JSON:\n${JSON.stringify(json, null, 2)}`;
+						} catch {}
+					}
+
 					return {
-						content: [
-							{
-								type: "text",
-								text: `PubChem Structure Search Results:\n\n${responseData}`
-							}
-						]
+						content: [{ type: "text", text: outputText }],
 					};
 				} catch (error) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Error in PubChem Structure Search: ${error instanceof Error ? error.message : String(error)}`
-							}
-						]
+								text: `Error in PubChem Structure Search: ${error instanceof Error ? error.message : String(error)}`,
+							},
+						],
 					};
 				}
-			}
+			},
 		);
 
 		// ===== PMC APIs =====
@@ -1298,20 +1852,37 @@ node test-rate-limits.js`
 		this.server.tool(
 			"pmc_id_converter",
 			{
-				ids: z.string().describe("Comma-separated list of IDs to convert (up to 200)"),
-				idtype: z.enum(["pmcid", "pmid", "mid", "doi"]).optional().describe("Type of input IDs (auto-detected if not specified)"),
-				versions: z.enum(["yes", "no"]).default("no").describe("Show version information"),
-				showaiid: z.enum(["yes", "no"]).default("no").describe("Show Article Instance IDs"),
-				format: z.enum(["xml", "json", "csv"]).default("json").describe("Output format"),
+				ids: z
+					.string()
+					.describe("Comma-separated list of IDs to convert (up to 200)"),
+				idtype: z
+					.enum(["pmcid", "pmid", "mid", "doi"])
+					.optional()
+					.describe("Type of input IDs (auto-detected if not specified)"),
+				versions: z
+					.enum(["yes", "no"])
+					.default("no")
+					.describe("Show version information"),
+				showaiid: z
+					.enum(["yes", "no"])
+					.default("no")
+					.describe("Show Article Instance IDs"),
+				format: z
+					.enum(["xml", "json", "csv"])
+					.default("json")
+					.describe("Output format"),
 			},
 			async ({ ids, idtype, versions, showaiid, format }) => {
 				try {
-					if (!ids || ids.trim() === '') {
+					if (!ids || ids.trim() === "") {
 						throw new Error("IDs parameter cannot be empty");
 					}
 
 					// Clean and validate IDs
-					const cleanIds = ids.split(',').map(id => id.trim()).filter(id => id !== '');
+					const cleanIds = ids
+						.split(",")
+						.map((id) => id.trim())
+						.filter((id) => id !== "");
 					if (cleanIds.length === 0) {
 						throw new Error("No valid IDs provided");
 					}
@@ -1320,7 +1891,7 @@ node test-rate-limits.js`
 					}
 
 					const params = new URLSearchParams({
-						ids: cleanIds.join(','),
+						ids: cleanIds.join(","),
 						versions: versions,
 						showaiid: showaiid,
 						format: format,
@@ -1333,28 +1904,39 @@ node test-rate-limits.js`
 					}
 
 					const url = `https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/?${params}`;
-					const response = await fetch(url);
-					const data = await this.parseResponse(response, "PMC ID Converter");
+					const response = await fetch(url, {
+						headers: { Accept: format === "json" ? "application/json" : "*/*" },
+					});
+					const data = await this.parseResponse(
+						response,
+						"PMC ID Converter",
+						format === "json",
+					);
 
-					return {
-						content: [
-							{
-								type: "text",
-								text: `PMC ID Converter Results:\n\n${data}`
+					let outputText = `PMC ID Converter Results:\n\n${data}`;
+					if (format === "json") {
+						try {
+							const json = JSON.parse(data);
+							const first = json.records?.[0];
+							if (first) {
+								outputText = `Input: ${first.requested_id} → PMC: ${first.pmcid || "N/A"} → PMID: ${first.pmid || "N/A"}\n\nFull JSON:\n${JSON.stringify(json, null, 2)}`;
 							}
-						]
+						} catch {}
+					}
+					return {
+						content: [{ type: "text", text: outputText }],
 					};
 				} catch (error) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Error in PMC ID Converter: ${error instanceof Error ? error.message : String(error)}`
-							}
-						]
+								text: `Error in PMC ID Converter: ${error instanceof Error ? error.message : String(error)}`,
+							},
+						],
 					};
 				}
-			}
+			},
 		);
 
 		// PMC Open Access Service - Check if article is available in Open Access
@@ -1362,11 +1944,15 @@ node test-rate-limits.js`
 			"pmc_oa_service",
 			{
 				id: z.string().describe("PMC ID, PMID, or DOI"),
-				format: z.enum(["xml", "json"]).optional().default("xml").describe("Output format"),
+				format: z
+					.enum(["xml", "json"])
+					.optional()
+					.default("xml")
+					.describe("Output format"),
 			},
 			async ({ id, format }) => {
 				try {
-					if (!id || id.trim() === '') {
+					if (!id || id.trim() === "") {
 						throw new Error("ID cannot be empty");
 					}
 
@@ -1375,21 +1961,30 @@ node test-rate-limits.js`
 
 					const response = await fetch(url, {
 						headers: {
-							'User-Agent': 'NCBI Entrez E-utilities MCP Server (entrez-mcp-server@example.com)'
-						}
+							"User-Agent":
+								"NCBI Entrez E-utilities MCP Server (entrez-mcp-server@example.com)",
+							Accept: format === "json" ? "application/json" : "*/*",
+						},
 					});
 
-					const data = await this.parseResponse(response, "PMC OA Service");
-					
+					const data = await this.parseResponse(
+						response,
+						"PMC OA Service",
+						format === "json",
+					);
+
 					// Check if the article is not available in OA
-					if (data.includes('cannotDisseminateFormat') || data.includes('not available')) {
+					if (
+						data.includes("cannotDisseminateFormat") ||
+						data.includes("not available")
+					) {
 						return {
 							content: [
 								{
 									type: "text",
-									text: `PMC Open Access Service Results:\n\nArticle ${id} is not available through the PMC Open Access Service. This may be because:\n1. The article is not in the PMC Open Access Subset\n2. The article has access restrictions\n3. The article is available only to PMC subscribers\n\nResponse: ${data}`
-								}
-							]
+									text: `PMC Open Access Service Results:\n\nArticle ${id} is not available through the PMC Open Access Service. This may be because:\n1. The article is not in the PMC Open Access Subset\n2. The article has access restrictions\n3. The article is available only to PMC subscribers\n\nResponse: ${data}`,
+								},
+							],
 						};
 					}
 
@@ -1397,21 +1992,21 @@ node test-rate-limits.js`
 						content: [
 							{
 								type: "text",
-								text: `PMC Open Access Service Results:\n\n${data}`
-							}
-						]
+								text: `PMC Open Access Service Results:\n\n${data}`,
+							},
+						],
 					};
 				} catch (error) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Error in PMC Open Access Service: ${error instanceof Error ? error.message : String(error)}`
-							}
-						]
+								text: `Error in PMC Open Access Service: ${error instanceof Error ? error.message : String(error)}`,
+							},
+						],
 					};
 				}
-			}
+			},
 		);
 
 		// PMC Citation Exporter - Get formatted citations for PMC articles
@@ -1419,11 +2014,13 @@ node test-rate-limits.js`
 			"pmc_citation_exporter",
 			{
 				id: z.string().describe("PMC ID or PMID"),
-				format: z.enum(["ris", "nbib", "medline", "bibtex"]).describe("Citation format"),
+				format: z
+					.enum(["ris", "nbib", "medline", "bibtex"])
+					.describe("Citation format"),
 			},
 			async ({ id, format }) => {
 				try {
-					if (!id || id.trim() === '') {
+					if (!id || id.trim() === "") {
 						throw new Error("ID cannot be empty");
 					}
 
@@ -1433,13 +2030,16 @@ node test-rate-limits.js`
 
 					const response = await fetch(url, {
 						headers: {
-							'User-Agent': `${this.defaultTool} (${this.defaultEmail})`
-						}
+							"User-Agent": `${this.defaultTool} (${this.defaultEmail})`,
+							Accept: "*/*",
+						},
 					});
 
 					if (!response.ok) {
 						const errorText = await response.text();
-						throw new Error(`PMC Citation Exporter request failed: ${response.status} ${response.statusText}. Response: ${errorText}`);
+						throw new Error(
+							`PMC Citation Exporter request failed: ${response.status} ${response.statusText}. Response: ${errorText}`,
+						);
 					}
 
 					const data = await response.text();
@@ -1448,21 +2048,21 @@ node test-rate-limits.js`
 						content: [
 							{
 								type: "text",
-								text: `PMC Citation Exporter Results:\n\n${data}`
-							}
-						]
+								text: `PMC Citation Exporter Results:\n\n${data}`,
+							},
+						],
 					};
 				} catch (error) {
 					return {
 						content: [
 							{
 								type: "text",
-								text: `Error in PMC Citation Exporter: ${error instanceof Error ? error.message : String(error)}`
-							}
-						]
+								text: `Error in PMC Citation Exporter: ${error instanceof Error ? error.message : String(error)}`,
+							},
+						],
 					};
 				}
-			}
+			},
 		);
 	}
 }
@@ -1474,7 +2074,7 @@ export default {
 	fetch(request: Request, env: Env, ctx: ExecutionContext) {
 		// Set the environment for the EntrezMCP class to access
 		EntrezMCP.currentEnv = env;
-		
+
 		const url = new URL(request.url);
 
 		if (url.pathname === "/sse" || url.pathname === "/sse/message") {
@@ -1485,9 +2085,12 @@ export default {
 			return EntrezMCP.serve("/mcp").fetch(request, env, ctx);
 		}
 
-		return new Response("Complete NCBI APIs MCP Server - Including E-utilities, BLAST, PubChem PUG, and PMC APIs", { 
-			status: 200,
-			headers: { "Content-Type": "text/plain" }
-		});
+		return new Response(
+			"Complete NCBI APIs MCP Server - Including E-utilities, BLAST, PubChem PUG, and PMC APIs",
+			{
+				status: 200,
+				headers: { "Content-Type": "text/plain" },
+			},
+		);
 	},
 };
