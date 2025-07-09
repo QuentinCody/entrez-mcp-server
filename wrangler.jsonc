@@ -4,7 +4,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "entrez-mcp-server",
+	"name": "entrez-mcp-server-plus",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat"],
@@ -16,6 +16,10 @@
 			{
 				"class_name": "EntrezMCP",
 				"name": "MCP_OBJECT"
+			},
+			{
+				"name": "JSON_TO_SQL_DO",
+				"class_name": "JsonToSqlDO"
 			}
 		]
 	},
@@ -23,16 +27,9 @@
 		{
 			"tag": "v1",
 			"new_sqlite_classes": [
-				"EntrezMCP"
+				"EntrezMCP",
+				"JsonToSqlDO"
 			]
-		},
-		{
-			"tag": "v2",
-			"renamed_classes": []
-		},
-		{
-			"tag": "v3",
-			"renamed_classes": []
 		}
 	],
 	"observability": {

@@ -2,12 +2,15 @@ import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import JSZip from "jszip";
+import { JsonToSqlDO } from "./do.js";
+import { getParserFor } from "./lib/parsers.js";
 
 // Define our MCP agent for NCBI Entrez E-utilities
 export class EntrezMCP extends McpAgent {
 	server = new McpServer({
 		name: "Complete NCBI APIs MCP Server",
 		version: "1.0.0",
+		description: "A comprehensive MCP server for E-utilities, BLAST, PubChem, and PMC, with advanced data staging capabilities.",
 	});
 
 	private baseUrl = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/";
@@ -58,7 +61,7 @@ export class EntrezMCP extends McpAgent {
 	}
 
 	// Helper method to parse and validate response
-	private async parseResponse(response: Response, toolName: string): Promise<string> {
+	private async parseResponse(response: Response, toolName: string): Promise<string | any> {
 		if (!response.ok) {
 			const errorText = await response.text();
 			throw new Error(`${toolName} request failed: ${response.status} ${response.statusText}. Response: ${errorText}`);
@@ -125,6 +128,15 @@ export class EntrezMCP extends McpAgent {
 		// Skip error checking for BLAST and PMC tools as they have different response formats
 		if (toolName.includes("BLAST") || toolName.includes("PMC") || toolName.includes("PubChem")) {
 			return data;
+		}
+		
+		// Try parsing as JSON for modern API responses
+		if (toolName.includes("JSON") || response.headers.get('content-type')?.includes('application/json')) {
+			try {
+				return JSON.parse(data);
+			} catch {
+				// Fall through to text processing
+			}
 		}
 		
 		// Check for common NCBI error patterns (only for E-utilities tools). Perform case-insensitive scan.
@@ -396,22 +408,16 @@ node test-rate-limits.js`
 			}
 		);
 
-		// EFetch - Download complete data records
+		// EFetch with Data Staging - Downloads and PARSES data from Entrez into relational SQLite database
 		this.server.tool(
-			"efetch",
+			"efetch_and_stage",
+			"Fetches and PARSES data from Entrez databases, then stages it into a relational SQLite database with proper entity extraction.",
 			{
-				db: z.string().default("pubmed").describe("Database name"),
+				db: z.string().default("pubmed").describe("Database name (e.g., 'pubmed', 'protein', 'nuccore')"),
 				id: z.string().describe("Comma-separated list of UIDs"),
-				rettype: z.string().optional().describe("Retrieval type (e.g., 'abstract', 'fasta', 'gb')"),
-				retmode: z.string().optional().describe("Retrieval mode (e.g., 'text', 'xml')"),
-				retstart: z.number().optional().describe("Starting position"),
-				retmax: z.number().optional().describe("Maximum number of records"),
-				strand: z.enum(["1", "2"]).optional().describe("DNA strand (1=plus, 2=minus)"),
-				seq_start: z.number().optional().describe("First sequence base to retrieve"),
-				seq_stop: z.number().optional().describe("Last sequence base to retrieve"),
-				complexity: z.enum(["0", "1", "2", "3", "4"]).optional().describe("Data complexity level"),
+				rettype: z.string().optional().default("xml").describe("Data format (e.g., 'xml', 'fasta', 'gb'). Determines which parser to use.")
 			},
-			async ({ db, id, rettype, retmode, retstart, retmax, strand, seq_start, seq_stop, complexity }) => {
+			async ({ db, id, rettype }) => {
 				try {
 					// Validate inputs
 					if (!id || id.trim() === '') {
@@ -427,63 +433,59 @@ node test-rate-limits.js`
 						throw new Error("No valid IDs provided");
 					}
 
-					// Database-specific validation
 					const dbName = db || "pubmed";
-					if (dbName === "pubmed" && (rettype === "fasta" || seq_start || seq_stop)) {
-						throw new Error("FASTA format and sequence parameters not supported for PubMed database");
-					}
-					if ((dbName === "protein" || dbName === "nuccore") && rettype === "abstract") {
-						throw new Error("Abstract format not supported for sequence databases");
-					}
+					const format = rettype || "xml";
+
+					// Set appropriate retmode for text-based parsing
+					const retmode = "text";
 
 					const params = new URLSearchParams({
 						db: dbName,
 						id: cleanIds.join(','),
 						tool: this.defaultTool,
 						email: this.defaultEmail,
+						retmode: retmode,
+						rettype: format
 					});
-
-					// Add optional parameters with validation
-					if (rettype) {
-						// Validate rettype for specific databases
-						const validRetTypes: Record<string, string[]> = {
-							"pubmed": ["abstract", "medline", "xml"],
-							"pmc": ["medline", "xml"],
-							"protein": ["fasta", "gb", "gp", "xml"],
-							"nuccore": ["fasta", "gb", "xml"],
-							"nucleotide": ["fasta", "gb", "xml"]
-						};
-						
-						if (validRetTypes[dbName] && !validRetTypes[dbName].includes(rettype)) {
-							throw new Error(`Invalid rettype '${rettype}' for database '${dbName}'. Valid types: ${validRetTypes[dbName].join(', ')}`);
-						}
-						params.append("rettype", rettype);
-					}
-					
-					if (retmode) params.append("retmode", retmode);
-					if (retstart !== undefined) params.append("retstart", retstart.toString());
-					if (retmax !== undefined) params.append("retmax", retmax.toString());
-					
-					// Sequence-specific parameters (only for sequence databases)
-					if (dbName === "protein" || dbName === "nuccore" || dbName === "nucleotide") {
-						if (strand) params.append("strand", strand);
-						if (seq_start !== undefined) params.append("seq_start", seq_start.toString());
-						if (seq_stop !== undefined) params.append("seq_stop", seq_stop.toString());
-						if (complexity) params.append("complexity", complexity);
-					}
 
 					const url = this.buildUrl("efetch.fcgi", params);
 					const response = await fetch(url);
-					const data = await this.parseResponse(response, "EFetch");
+					
+					if (!response.ok) {
+						throw new Error(`API Error: ${response.status} ${await response.text()}`);
+					}
 
-					return {
-						content: [
-							{
-								type: "text",
-								text: `EFetch Results:\n\n${data}`
-							}
-						]
-					};
+					const rawContent = await response.text();
+
+					// --- THE NEW PARSER LAYER ---
+					// Select the correct parser based on the database and format
+					const parser = getParserFor(dbName, format);
+					// Parse the raw text content into structured JSON with UIDs
+					const processedData = parser.parse(rawContent);
+
+					// --- BYPASS AND STAGING LOGIC (Now receives clean structured data) ---
+					const payloadSize = JSON.stringify(processedData).length;
+					if (payloadSize < 1024) {
+						return {
+							content: [{ type: "text", text: JSON.stringify(processedData, null, 2) }],
+							_meta: { bypassed: true, reason: "small_payload", size_bytes: payloadSize }
+						};
+					}
+
+					// --- HAND-OFF TO DURABLE OBJECT FOR STAGING (sending clean array with UIDs) ---
+					if (!EntrezMCP.currentEnv?.JSON_TO_SQL_DO) {
+						throw new Error("JSON_TO_SQL_DO binding not available");
+					}
+					const doId = EntrezMCP.currentEnv.JSON_TO_SQL_DO.newUniqueId();
+					const stub = EntrezMCP.currentEnv.JSON_TO_SQL_DO.get(doId);
+					const stagingResponse = await stub.fetch("http://do/process", {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify(processedData)
+					});
+					const stagingResult = await stagingResponse.json();
+
+					return { content: [{ type: "text", text: JSON.stringify(stagingResult, null, 2) }] };
 				} catch (error) {
 					return {
 						content: [
@@ -493,6 +495,56 @@ node test-rate-limits.js`
 							}
 						]
 					};
+				}
+			}
+		);
+
+		// Query Staged Data - Execute SQL queries against staged datasets
+		this.server.tool(
+			"query_staged_data",
+			{
+				data_access_id: z.string().describe("The data_access_id from a tool call that staged data."),
+				sql: z.string().describe("The SQL SELECT query to run."),
+			},
+			async ({ data_access_id, sql }) => {
+				try {
+					if (!EntrezMCP.currentEnv?.JSON_TO_SQL_DO) {
+						throw new Error("JSON_TO_SQL_DO binding not available");
+					}
+					const doId = EntrezMCP.currentEnv.JSON_TO_SQL_DO.idFromString(data_access_id);
+					const stub = EntrezMCP.currentEnv.JSON_TO_SQL_DO.get(doId);
+					const response = await stub.fetch("http://do/query-enhanced", {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ sql })
+					});
+					const result = await response.json();
+					return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+				} catch (e) {
+					return { content: [{ type: "text", text: "Error: Invalid data_access_id. Please provide a valid ID from a staging tool." }] };
+				}
+			}
+		);
+
+		// Get Staged Schema - Retrieve database schema for staged datasets
+		this.server.tool(
+			"get_staged_schema",
+			{
+				data_access_id: z.string().describe("The data_access_id from a tool call that staged data."),
+			},
+			async ({ data_access_id }) => {
+				try {
+					if (!EntrezMCP.currentEnv?.JSON_TO_SQL_DO) {
+						throw new Error("JSON_TO_SQL_DO binding not available");
+					}
+					const doId = EntrezMCP.currentEnv.JSON_TO_SQL_DO.idFromString(data_access_id);
+					const stub = EntrezMCP.currentEnv.JSON_TO_SQL_DO.get(doId);
+					const response = await stub.fetch("http://do/schema");
+					const schema = await response.json() as any[];
+					const formattedSchema = schema.map((t: any) => `\n-- Table: ${t.name}\n${t.sql};`).join('\n');
+					return { content: [{ type: "text", text: `Database Schema:\n${formattedSchema}` }] };
+				} catch (e) {
+					return { content: [{ type: "text", text: "Error: Invalid data_access_id. Please provide a valid ID from a staging tool." }] };
 				}
 			}
 		);
@@ -1485,9 +1537,11 @@ export default {
 			return EntrezMCP.serve("/mcp").fetch(request, env, ctx);
 		}
 
-		return new Response("Complete NCBI APIs MCP Server - Including E-utilities, BLAST, PubChem PUG, and PMC APIs", { 
+		return new Response("Complete NCBI APIs MCP Server Plus - Including E-utilities, BLAST, PubChem PUG, PMC APIs, and Advanced Data Staging", { 
 			status: 200,
 			headers: { "Content-Type": "text/plain" }
 		});
 	},
 };
+
+export { JsonToSqlDO };
