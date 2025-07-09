@@ -25,15 +25,12 @@
 	},
 	"migrations": [
 		{
-			"tag": "v6-fix-rename",
+			"tag": "v7-fix-rename-only",
 			"renamed_classes": [
 				{
 					"from": "JsonSpilloverDO",
 					"to": "JsonToSqlDO"
 				}
-			],
-			"new_sqlite_classes": [
-				"JsonToSqlDO"
 			]
 		}
 	],
