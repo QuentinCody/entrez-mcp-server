@@ -25,10 +25,12 @@
 	},
 	"migrations": [
 		{
-			"tag": "v1",
-			"new_sqlite_classes": [
-				"EntrezMCP",
-				"JsonToSqlDO"
+			"tag": "v7-fix-rename-only",
+			"renamed_classes": [
+				{
+					"from": "JsonSpilloverDO",
+					"to": "JsonToSqlDO"
+				}
 			]
 		}
 	],
