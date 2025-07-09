@@ -1537,7 +1537,7 @@ export default {
 			return EntrezMCP.serve("/mcp").fetch(request, env, ctx);
 		}
 
-		return new Response("Complete NCBI APIs MCP Server Plus - Including E-utilities, BLAST, PubChem PUG, PMC APIs, and Advanced Data Staging", { 
+		return new Response("Complete NCBI APIs MCP Server - Including E-utilities, BLAST, PubChem PUG, PMC APIs, and Advanced Data Staging", { 
 			status: 200,
 			headers: { "Content-Type": "text/plain" }
 		});
