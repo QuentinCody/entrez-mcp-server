@@ -17,15 +17,27 @@ export class EntrezMCP extends McpAgent {
 	private defaultEmail = "entrez-mcp-server@example.com";
 	private defaultTool = "entrez-mcp-server";
 
+	// Instance-based environment storage instead of static
+	private workerEnv: Env | undefined;
+
 	// Optional Entrez API key - accessed from environment via method
 	private getApiKey(): string | undefined {
-		// In Cloudflare Workers, we need to access env through the context
-		// This will be set via a static property during request handling
-		return EntrezMCP.currentEnv?.NCBI_API_KEY;
+		// Access through instance environment
+		return this.workerEnv?.NCBI_API_KEY || EntrezMCP.currentEnv?.NCBI_API_KEY;
 	}
 
-	// Static property to hold the current environment during request processing
+	// Static property to hold the current environment during request processing (fallback)
 	public static currentEnv: Env | undefined;
+
+	// Method to set environment on this instance
+	public setEnvironment(env: Env): void {
+		this.workerEnv = env;
+	}
+
+	// Helper method to get environment (prefer instance, fallback to static)
+	private getEnvironment(): Env | undefined {
+		return this.workerEnv || EntrezMCP.currentEnv;
+	}
 
 	// Helper method to get API key status for user feedback
 	private getApiKeyStatus(): { hasKey: boolean; message: string; rateLimit: string } {
@@ -61,7 +73,7 @@ export class EntrezMCP extends McpAgent {
 	}
 
 	// Helper method to parse and validate response
-	private async parseResponse(response: Response, toolName: string): Promise<string | any> {
+	private async parseResponse(response: Response, toolName: string, requestedRetmode?: string): Promise<string | any> {
 		if (!response.ok) {
 			const errorText = await response.text();
 			throw new Error(`${toolName} request failed: ${response.status} ${response.statusText}. Response: ${errorText}`);
@@ -131,7 +143,10 @@ export class EntrezMCP extends McpAgent {
 		}
 		
 		// Try parsing as JSON for modern API responses
-		if (toolName.includes("JSON") || response.headers.get('content-type')?.includes('application/json')) {
+		// Check if JSON was explicitly requested or if content-type indicates JSON
+		if (requestedRetmode === "json" || 
+			toolName.includes("JSON") || 
+			response.headers.get('content-type')?.includes('application/json')) {
 			try {
 				return JSON.parse(data);
 			} catch {
@@ -157,6 +172,155 @@ export class EntrezMCP extends McpAgent {
 		}
 
 		return data;
+	}
+
+	// Helper method to format response data (handles both strings and objects)
+	private formatResponseData(data: any): string {
+		if (typeof data === 'string') {
+			return data;
+		} else if (typeof data === 'object' && data !== null) {
+			// Check if this is an ESearch result with query translations that could be improved
+			if (data.esearchresult && (data.esearchresult.translationset || data.esearchresult.querytranslation)) {
+				return this.formatESearchResponse(data);
+			}
+			return JSON.stringify(data, null, 2);
+		} else {
+			return String(data);
+		}
+	}
+
+	// Enhanced formatter for ESearch responses with cleaned up query translations
+	private formatESearchResponse(data: any): string {
+		const result = data.esearchresult;
+		let output = '';
+
+		// Basic search info
+		output += `Search Results Summary:\n`;
+		output += `========================\n`;
+		output += `Total Results: ${result.count || '0'}\n`;
+		output += `Returned: ${result.retmax || '0'}\n`;
+		output += `Starting at: ${result.retstart || '0'}\n\n`;
+
+		// Clean up query translations
+		if (result.translationset && result.translationset.length > 0) {
+			output += `Query Interpretation:\n`;
+			output += `====================\n`;
+			
+			for (const translation of result.translationset) {
+				output += `Your search: "${translation.from}"\n`;
+				output += `Expanded to include:\n`;
+				
+				const cleanedTerms = this.extractMeaningfulTerms(translation.to);
+				for (const term of cleanedTerms) {
+					output += `  • ${term}\n`;
+				}
+				output += '\n';
+			}
+		}
+
+		// If query translation exists but no translation set, show cleaned version
+		if (result.querytranslation && (!result.translationset || result.translationset.length === 0)) {
+			output += `Search Terms Used:\n`;
+			output += `==================\n`;
+			const cleanedTerms = this.extractMeaningfulTerms(result.querytranslation);
+			for (const term of cleanedTerms) {
+				output += `  • ${term}\n`;
+			}
+			output += '\n';
+		}
+
+		// Article IDs
+		if (result.idlist && result.idlist.length > 0) {
+			output += `Article IDs Found:\n`;
+			output += `==================\n`;
+			output += result.idlist.join(', ') + '\n\n';
+		}
+
+		// Add raw technical details for power users (collapsed)
+		output += `Technical Details (Full Query):\n`;
+		output += `===============================\n`;
+		output += `${result.querytranslation || 'No query translation available'}\n\n`;
+
+		// Include any other fields that might be present
+		const otherFields = Object.keys(result).filter(key => 
+			!['count', 'retmax', 'retstart', 'idlist', 'translationset', 'querytranslation'].includes(key)
+		);
+		
+		if (otherFields.length > 0) {
+			output += `Additional Information:\n`;
+			output += `======================\n`;
+			for (const field of otherFields) {
+				output += `${field}: ${JSON.stringify(result[field])}\n`;
+			}
+		}
+
+		return output;
+	}
+
+	// Extract meaningful search terms from NCBI's verbose Boolean query
+	private extractMeaningfulTerms(queryString: string): string[] {
+		const terms = new Set<string>();
+		
+		// Match patterns like "term"[Field] or just quoted terms
+		const patterns = [
+			// MeSH terms: "diabetes mellitus"[MeSH Terms]
+			/"([^"]+)"\[MeSH Terms\]/g,
+			// Supplementary concepts: "covid-19 vaccines"[Supplementary Concept]  
+			/"([^"]+)"\[Supplementary Concept\]/g,
+			// All fields (only include if not already captured): "meaningful term"[All Fields]
+			/"([^"]+)"\[All Fields\]/g,
+			// Other field types
+			/"([^"]+)"\[Title\]/g,
+			/"([^"]+)"\[Author\]/g,
+			/"([^"]+)"\[Journal\]/g,
+		];
+
+		for (const pattern of patterns) {
+			let match: RegExpExecArray | null;
+			match = pattern.exec(queryString);
+			while (match !== null) {
+				const term = match[1].trim();
+				if (term && term.length > 2) { // Filter out very short terms
+					// Add field type annotation for clarity
+					if (pattern.source.includes('MeSH Terms')) {
+						terms.add(`${term} (MeSH term)`);
+					} else if (pattern.source.includes('Supplementary Concept')) {
+						terms.add(`${term} (medical concept)`);
+					} else if (pattern.source.includes('Title')) {
+						terms.add(`${term} (in title)`);
+					} else if (pattern.source.includes('Author')) {
+						terms.add(`${term} (author name)`);
+					} else if (pattern.source.includes('Journal')) {
+						terms.add(`${term} (journal name)`);
+					} else {
+						// For All Fields, only add if it's not a duplicate of a more specific field
+						const simplePattern = term.toLowerCase().replace(/[^a-z0-9\s]/g, '');
+						const alreadyHasSpecific = Array.from(terms).some(existingTerm => 
+							existingTerm.toLowerCase().includes(simplePattern)
+						);
+						if (!alreadyHasSpecific) {
+							terms.add(`${term} (anywhere in article)`);
+						}
+					}
+				}
+				match = pattern.exec(queryString);
+			}
+		}
+
+		// If no structured terms found, try to extract basic quoted terms
+		if (terms.size === 0) {
+			const basicQuotedTerms = queryString.match(/"([^"]+)"/g);
+			if (basicQuotedTerms) {
+				basicQuotedTerms.forEach(quotedTerm => {
+					const term = quotedTerm.replace(/"/g, '').trim();
+					if (term.length > 2) {
+						terms.add(term);
+					}
+				});
+			}
+		}
+
+		return Array.from(terms).sort();
 	}
 
 	// Helper method to build URL with validation
@@ -242,13 +406,13 @@ node test-rate-limits.js`
 
 					const url = this.buildUrl("einfo.fcgi", params);
 					const response = await fetch(url);
-					const data = await this.parseResponse(response, "EInfo");
+					const data = await this.parseResponse(response, "EInfo", retmode);
 
 					return {
 						content: [
 							{
 								type: "text",
-								text: `EInfo Results:\n\n${data}`
+								text: `EInfo Results:\n\n${this.formatResponseData(data)}`
 							}
 						]
 					};
@@ -318,13 +482,13 @@ node test-rate-limits.js`
 
 					const url = this.buildUrl("esearch.fcgi", params);
 					const response = await fetch(url);
-					const data = await this.parseResponse(response, "ESearch");
+					const data = await this.parseResponse(response, "ESearch", retmode);
 
 					return {
 						content: [
 							{
 								type: "text",
-								text: `ESearch Results:\n\n${data}`
+								text: `ESearch Results:\n\n${this.formatResponseData(data)}`
 							}
 						]
 					};
@@ -385,13 +549,13 @@ node test-rate-limits.js`
 
 					const url = this.buildUrl("esummary.fcgi", params);
 					const response = await fetch(url);
-					const data = await this.parseResponse(response, "ESummary");
+					const data = await this.parseResponse(response, "ESummary", retmode);
 
 					return {
 						content: [
 							{
 								type: "text",
-								text: `ESummary Results:\n\n${data}`
+								text: `ESummary Results:\n\n${this.formatResponseData(data)}`
 							}
 						]
 					};
@@ -460,28 +624,39 @@ node test-rate-limits.js`
 					// --- THE NEW PARSER LAYER ---
 					// Select the correct parser based on the database and format
 					const parser = getParserFor(dbName, format);
-					// Parse the raw text content into structured JSON with UIDs
-					const processedData = parser.parse(rawContent);
+					// Parse the raw text content into structured JSON with UIDs and diagnostics
+					const parseResult = parser.parse(rawContent);
+					const processedData = parseResult.entities;
 
-					// --- BYPASS AND STAGING LOGIC (Now receives clean structured data) ---
+					// --- BYPASS AND STAGING LOGIC (Now receives clean structured data with diagnostics) ---
 					const payloadSize = JSON.stringify(processedData).length;
-					if (payloadSize < 1024) {
+					if (payloadSize < 1024 && parseResult.diagnostics.mesh_availability !== 'none') {
 						return {
-							content: [{ type: "text", text: JSON.stringify(processedData, null, 2) }],
-							_meta: { bypassed: true, reason: "small_payload", size_bytes: payloadSize }
+							content: [{ type: "text", text: JSON.stringify({
+								entities: processedData,
+								diagnostics: parseResult.diagnostics,
+								message: "Small dataset - returned directly without staging"
+							}, null, 2) }],
+							_meta: { 
+								bypassed: true, 
+								reason: "small_payload", 
+								size_bytes: payloadSize,
+								diagnostics: parseResult.diagnostics 
+							}
 						};
 					}
 
-					// --- HAND-OFF TO DURABLE OBJECT FOR STAGING (sending clean array with UIDs) ---
-					if (!EntrezMCP.currentEnv?.JSON_TO_SQL_DO) {
+					// --- HAND-OFF TO DURABLE OBJECT FOR STAGING (sending full parse result with diagnostics) ---
+					const env = this.getEnvironment();
+					if (!env?.JSON_TO_SQL_DO) {
 						throw new Error("JSON_TO_SQL_DO binding not available");
 					}
-					const doId = EntrezMCP.currentEnv.JSON_TO_SQL_DO.newUniqueId();
-					const stub = EntrezMCP.currentEnv.JSON_TO_SQL_DO.get(doId);
+					const doId = env.JSON_TO_SQL_DO.newUniqueId();
+					const stub = env.JSON_TO_SQL_DO.get(doId);
 					const stagingResponse = await stub.fetch("http://do/process", {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify(processedData)
+						body: JSON.stringify(parseResult)
 					});
 					const stagingResult = await stagingResponse.json();
 
@@ -508,11 +683,12 @@ node test-rate-limits.js`
 			},
 			async ({ data_access_id, sql }) => {
 				try {
-					if (!EntrezMCP.currentEnv?.JSON_TO_SQL_DO) {
+					const env = this.getEnvironment();
+					if (!env?.JSON_TO_SQL_DO) {
 						throw new Error("JSON_TO_SQL_DO binding not available");
 					}
-					const doId = EntrezMCP.currentEnv.JSON_TO_SQL_DO.idFromString(data_access_id);
-					const stub = EntrezMCP.currentEnv.JSON_TO_SQL_DO.get(doId);
+					const doId = env.JSON_TO_SQL_DO.idFromString(data_access_id);
+					const stub = env.JSON_TO_SQL_DO.get(doId);
 					const response = await stub.fetch("http://do/query-enhanced", {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
@@ -526,7 +702,7 @@ node test-rate-limits.js`
 			}
 		);
 
-		// Get Staged Schema - Retrieve database schema for staged datasets
+		// Get Staged Schema - Retrieve enhanced database schema and guidance for staged datasets
 		this.server.tool(
 			"get_staged_schema",
 			{
@@ -534,15 +710,80 @@ node test-rate-limits.js`
 			},
 			async ({ data_access_id }) => {
 				try {
-					if (!EntrezMCP.currentEnv?.JSON_TO_SQL_DO) {
+					const env = this.getEnvironment();
+					if (!env?.JSON_TO_SQL_DO) {
 						throw new Error("JSON_TO_SQL_DO binding not available");
 					}
-					const doId = EntrezMCP.currentEnv.JSON_TO_SQL_DO.idFromString(data_access_id);
-					const stub = EntrezMCP.currentEnv.JSON_TO_SQL_DO.get(doId);
+					const doId = env.JSON_TO_SQL_DO.idFromString(data_access_id);
+					const stub = env.JSON_TO_SQL_DO.get(doId);
 					const response = await stub.fetch("http://do/schema");
-					const schema = await response.json() as any[];
-					const formattedSchema = schema.map((t: any) => `\n-- Table: ${t.name}\n${t.sql};`).join('\n');
-					return { content: [{ type: "text", text: `Database Schema:\n${formattedSchema}` }] };
+					const schemaInfo = await response.json() as any;
+					
+					// Format the enhanced schema information for LLM consumption
+					let output = `# Enhanced Database Schema and Query Guidance\n\n`;
+					
+					// Basic schema
+					if (schemaInfo.basic_schema) {
+						output += `## Database Tables:\n`;
+						schemaInfo.basic_schema.forEach((table: any) => {
+							output += `### ${table.name}\n\`\`\`sql\n${table.sql}\n\`\`\`\n\n`;
+						});
+					}
+					
+					// Enhanced column information
+					if (schemaInfo.enhanced_schemas) {
+						output += `## Column Descriptions:\n`;
+						Object.values(schemaInfo.enhanced_schemas).forEach((schema: any) => {
+							output += `### ${schema.table_name} Table:\n`;
+							Object.entries(schema.columns).forEach(([colName, colInfo]: [string, any]) => {
+								output += `- **${colName}** (${colInfo.type}): ${colInfo.description}\n`;
+								if (colInfo.common_aliases.length > 0) {
+									output += `  - Common aliases: ${colInfo.common_aliases.join(', ')}\n`;
+								}
+								if (colInfo.example_values.length > 0) {
+									output += `  - Example values: ${colInfo.example_values.slice(0, 3).join(', ')}\n`;
+								}
+							});
+							output += '\n';
+						});
+					}
+					
+					// Quick start queries
+					if (schemaInfo.quick_start) {
+						output += `## Quick Start Queries:\n`;
+						schemaInfo.quick_start.sample_queries.forEach((query: string) => {
+							output += `\`\`\`sql\n${query}\n\`\`\`\n`;
+						});
+						output += '\n';
+						
+						output += `## Important Notes:\n`;
+						schemaInfo.quick_start.important_notes.forEach((note: string) => {
+							output += `- ${note}\n`;
+						});
+						output += '\n';
+					}
+					
+					// Common joins
+					if (schemaInfo.schema_guidance?.common_joins) {
+						output += `## Common Join Patterns:\n`;
+						schemaInfo.schema_guidance.common_joins.forEach((join: any) => {
+							output += `### ${join.description}\n`;
+							output += `**Tables:** ${join.tables.join(', ')}\n`;
+							output += `**Example:**\n\`\`\`sql\n${join.example_sql}\n\`\`\`\n\n`;
+						});
+					}
+					
+					// Recommended queries
+					if (schemaInfo.schema_guidance?.recommended_queries) {
+						output += `## Recommended Query Patterns:\n`;
+						schemaInfo.schema_guidance.recommended_queries.forEach((rq: any) => {
+							output += `### ${rq.description}\n`;
+							output += `**Use case:** ${rq.use_case}\n`;
+							output += `\`\`\`sql\n${rq.sql}\n\`\`\`\n\n`;
+						});
+					}
+
+					return { content: [{ type: "text", text: output }] };
 				} catch (e) {
 					return { content: [{ type: "text", text: "Error: Invalid data_access_id. Please provide a valid ID from a staging tool." }] };
 				}
@@ -605,13 +846,13 @@ node test-rate-limits.js`
 
 					const url = this.buildUrl("elink.fcgi", params);
 					const response = await fetch(url);
-					const data = await this.parseResponse(response, "ELink");
+					const data = await this.parseResponse(response, "ELink", retmode);
 
 					return {
 						content: [
 							{
 								type: "text",
-								text: `ELink Results:\n\n${data}`
+								text: `ELink Results:\n\n${this.formatResponseData(data)}`
 							}
 						]
 					};
@@ -669,7 +910,7 @@ node test-rate-limits.js`
 						content: [
 							{
 								type: "text",
-								text: `EPost Results:\n\n${data}`
+								text: `EPost Results:\n\n${this.formatResponseData(data)}`
 							}
 						]
 					};
@@ -905,7 +1146,7 @@ node test-rate-limits.js`
 						content: [
 							{
 								type: "text",
-								text: `ESpell Results:\n\n${data}`
+								text: `ESpell Results:\n\n${this.formatResponseData(data)}`
 							}
 						]
 					};
@@ -982,7 +1223,7 @@ node test-rate-limits.js`
 						content: [
 							{
 								type: "text",
-								text: `BLAST Submit Results:\n\n${data}`
+								text: `BLAST Submit Results:\n\n${this.formatResponseData(data)}`
 							}
 						]
 					};
@@ -1047,7 +1288,7 @@ node test-rate-limits.js`
 									content: [
 										{
 											type: "text",
-											text: `BLAST search with RID ${rid} is still running after ${maxRetries} attempts. Please try again later.\n\n${data}`
+											text: `BLAST search with RID ${rid} is still running after ${maxRetries} attempts. Please try again later.\n\n${this.formatResponseData(data)}`
 										}
 									]
 								};
@@ -1059,7 +1300,7 @@ node test-rate-limits.js`
 							content: [
 								{
 									type: "text",
-									text: `BLAST Results:\n\n${data}`
+									text: `BLAST Results:\n\n${this.formatResponseData(data)}`
 								}
 							]
 						};
@@ -1123,7 +1364,7 @@ node test-rate-limits.js`
 						content: [
 							{
 								type: "text",
-								text: `PubChem Compound Results:\n\n${data}`
+								text: `PubChem Compound Results:\n\n${this.formatResponseData(data)}`
 							}
 						]
 					};
@@ -1177,7 +1418,7 @@ node test-rate-limits.js`
 						content: [
 							{
 								type: "text",
-								text: `PubChem Substance Results:\n\n${data}`
+								text: `PubChem Substance Results:\n\n${this.formatResponseData(data)}`
 							}
 						]
 					};
@@ -1231,7 +1472,7 @@ node test-rate-limits.js`
 						content: [
 							{
 								type: "text",
-								text: `PubChem BioAssay Results:\n\n${data}`
+								text: `PubChem BioAssay Results:\n\n${this.formatResponseData(data)}`
 							}
 						]
 					};
@@ -1317,7 +1558,7 @@ node test-rate-limits.js`
 							content: [
 								{
 									type: "text",
-									text: `PubChem Structure Search Submitted:\n\nSearch is running. Please wait and try again with the returned key to get results.\n\n${responseData}`
+									text: `PubChem Structure Search Submitted:\n\nSearch is running. Please wait and try again with the returned key to get results.\n\n${this.formatResponseData(responseData)}`
 								}
 							]
 						};
@@ -1327,7 +1568,7 @@ node test-rate-limits.js`
 						content: [
 							{
 								type: "text",
-								text: `PubChem Structure Search Results:\n\n${responseData}`
+								text: `PubChem Structure Search Results:\n\n${this.formatResponseData(responseData)}`
 							}
 						]
 					};
@@ -1392,7 +1633,7 @@ node test-rate-limits.js`
 						content: [
 							{
 								type: "text",
-								text: `PMC ID Converter Results:\n\n${data}`
+								text: `PMC ID Converter Results:\n\n${this.formatResponseData(data)}`
 							}
 						]
 					};
@@ -1449,7 +1690,7 @@ node test-rate-limits.js`
 						content: [
 							{
 								type: "text",
-								text: `PMC Open Access Service Results:\n\n${data}`
+								text: `PMC Open Access Service Results:\n\n${this.formatResponseData(data)}`
 							}
 						]
 					};
@@ -1500,7 +1741,7 @@ node test-rate-limits.js`
 						content: [
 							{
 								type: "text",
-								text: `PMC Citation Exporter Results:\n\n${data}`
+								text: `PMC Citation Exporter Results:\n\n${this.formatResponseData(data)}`
 							}
 						]
 					};
