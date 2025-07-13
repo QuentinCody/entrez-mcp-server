@@ -14,10 +14,6 @@
 	"durable_objects": {
 		"bindings": [
 			{
-				"class_name": "EntrezMCP",
-				"name": "MCP_OBJECT"
-			},
-			{
 				"name": "JSON_TO_SQL_DO",
 				"class_name": "JsonToSqlDO"
 			}
@@ -27,9 +23,15 @@
 		{
 			"tag": "v3-fresh-sql-migration",
 			"new_sqlite_classes": [
-				"EntrezMCP",
 				"JsonToSqlDO"
 			]
+		},
+		{
+			"tag": "v4-delete-entrezmcp",
+			"deleted_classes": ["EntrezMCP"]
+		},
+		{
+			"tag": "v7-fix-rename-only"
 		}
 	],
 	"observability": {
