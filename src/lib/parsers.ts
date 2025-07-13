@@ -48,13 +48,13 @@ export class PubMedXMLParser implements IContentParser {
                 const authorContent = authorBlock[1];
                 const lastNameMatch = authorContent.match(lastNameRegex);
                 const foreNameMatch = authorContent.match(foreNameRegex);
-                const affiliationMatch = authorContent.match(affiliationRegex);
+                const affiliations = Array.from(authorContent.matchAll(/<Affiliation>([^<]+)<\/Affiliation>/g)).map(m => m[1].trim());
                 
                 const authorData = {
                     uid: `${articleUID}_auth_${index}`,
                     lastname: lastNameMatch ? lastNameMatch[1].trim() : null,
                     forename: foreNameMatch ? foreNameMatch[1].trim() : null,
-                    affiliation: affiliationMatch ? affiliationMatch[1].trim() : null
+                    affiliation: affiliations.length > 0 ? affiliations.join('; ') : null
                 };
                 allEntities.push({ type: 'author', data: authorData });
                 return authorData;
