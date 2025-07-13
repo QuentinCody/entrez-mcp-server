@@ -25,7 +25,7 @@
 	},
 	"migrations": [
 		{
-			"tag": "v1",
+			"tag": "v3-fresh-sql-migration",
 			"new_sqlite_classes": [
 				"EntrezMCP",
 				"JsonToSqlDO"
