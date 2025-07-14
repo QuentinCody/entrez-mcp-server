@@ -344,6 +344,7 @@ export class EntrezMCP extends McpAgent {
 		// API Key Status - Check NCBI API key configuration and rate limits
 		this.server.tool(
 			"api_key_status",
+			"Check your NCBI API key configuration and current rate limits. Without an API key, you're limited to 3 requests/second. With a valid API key, you get 10 requests/second (or higher by request). Essential for optimizing E-utilities performance.",
 			{},
 			async () => {
 				const status = this.getApiKeyStatus();
@@ -383,6 +384,7 @@ node test-rate-limits.js`
 		// EInfo - Get metadata about an Entrez database
 		this.server.tool(
 			"einfo",
+			"Get comprehensive metadata about NCBI Entrez databases including field statistics, last update dates, and available links to other databases. Covers all 38+ Entrez databases from PubMed to protein sequences.",
 			{
 				db: z.string().optional().describe("Database name (optional). If not provided, returns list of all databases"),
 				version: z.string().optional().describe("Version 2.0 for enhanced XML output"),
@@ -432,6 +434,7 @@ node test-rate-limits.js`
 		// ESearch - Run a text or UID-based query
 		this.server.tool(
 			"esearch",
+			"Search Entrez databases with text queries to find matching UIDs. Core Entrez function that converts queries into UID lists for use with other E-utilities. Supports Boolean operators (AND, OR, NOT) and field-specific searches.",
 			{
 				db: z.string().default("pubmed").describe("Database to search"),
 				term: z.string().describe("Entrez text query"),
@@ -508,6 +511,7 @@ node test-rate-limits.js`
 		// ESummary - Retrieve concise document summaries for UIDs
 		this.server.tool(
 			"esummary",
+			"Retrieve concise document summaries (DocSums) for UIDs from any Entrez database. Essential for getting key metadata like titles, authors, dates before deciding whether to fetch full records. Core Entrez engine function.",
 			{
 				db: z.string().default("pubmed").describe("Database name"),
 				id: z.string().describe("Comma-separated list of UIDs"),
@@ -677,6 +681,7 @@ node test-rate-limits.js`
 		// Query Staged Data - Execute SQL queries against staged datasets
 		this.server.tool(
 			"query_staged_data",
+			"Execute SQL queries against previously staged Entrez datasets. Query the relational database created by efetch_and_stage with full SQL support including JOINs, aggregations, and complex filtering across parsed biomedical data.",
 			{
 				data_access_id: z.string().describe("The data_access_id from a tool call that staged data."),
 				sql: z.string().describe("The SQL SELECT query to run."),
@@ -705,6 +710,7 @@ node test-rate-limits.js`
 		// Get Staged Schema - Retrieve enhanced database schema and guidance for staged datasets
 		this.server.tool(
 			"get_staged_schema",
+			"Get comprehensive schema information for staged datasets including table structures, column descriptions, common aliases, example values, and recommended query patterns. Essential for understanding your staged data.",
 			{
 				data_access_id: z.string().describe("The data_access_id from a tool call that staged data."),
 			},
@@ -793,6 +799,7 @@ node test-rate-limits.js`
 		// ELink - Find UIDs linked/related within same or different databases
 		this.server.tool(
 			"elink",
+			"Find UIDs linked between Entrez databases (e.g., SNP records linked to Nucleotide, Domain records linked to Protein). Essential for discovering related data across NCBI's interconnected databases and creating data pipelines.",
 			{
 				db: z.string().default("pubmed").describe("Target database"),
 				dbfrom: z.string().default("pubmed").describe("Source database"),
@@ -872,6 +879,7 @@ node test-rate-limits.js`
 		// EPost - Upload UIDs to Entrez History for later use
 		this.server.tool(
 			"epost",
+			"Upload UIDs to the Entrez History server for efficient batch processing. Essential for large datasets - upload thousands of IDs once, then use with other E-utilities. Returns query_key and WebEnv for pipeline workflows.",
 			{
 				db: z.string().default("pubmed").describe("Database name"),
 				id: z.string().describe("Comma-separated list of UIDs to upload"),
@@ -930,6 +938,7 @@ node test-rate-limits.js`
 		// EGQuery - Run a global query across all Entrez databases
 		this.server.tool(
 			"egquery",
+			"Search across all 38+ Entrez databases simultaneously to see hit counts for your query in each database. Global version of ESearch that helps identify which databases contain relevant data before focused searches.",
 			{
 				term: z.string().describe("Entrez text query to search across all databases"),
 			},
@@ -1117,6 +1126,7 @@ node test-rate-limits.js`
 		// ESpell - Return spelling suggestions for search terms
 		this.server.tool(
 			"espell",
+			"Get spelling suggestions for search terms in Entrez databases. Helps optimize queries by suggesting correct spellings for biomedical terms, gene names, and scientific terminology before running searches.",
 			{
 				db: z.string().default("pubmed").describe("Database name"),
 				term: z.string().describe("Text query to get spelling suggestions for"),
@@ -1168,6 +1178,7 @@ node test-rate-limits.js`
 		// BLAST Submit - Submit a BLAST search job
 		this.server.tool(
 			"blast_submit",
+			"Submit sequences for BLAST similarity searching against NCBI databases. Supports all BLAST programs (blastn, blastp, blastx, tblastn, tblastx) with customizable parameters. Returns job ID for result retrieval.",
 			{
 				cmd: z.literal("Put").describe("Command to submit search"),
 				query: z.string().describe("Search query (FASTA sequence, accession, or GI)"),
@@ -1243,6 +1254,7 @@ node test-rate-limits.js`
 		// BLAST Get - Retrieve BLAST search results
 		this.server.tool(
 			"blast_get",
+			"Retrieve results from a submitted BLAST job using the Request ID. Get detailed sequence alignments, similarity scores, and annotations. Multiple output formats available including XML, JSON, and tabular.",
 			{
 				cmd: z.literal("Get").describe("Command to get results"),
 				rid: z.string().describe("Request ID from BLAST submission"),
