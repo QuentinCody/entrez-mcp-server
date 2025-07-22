@@ -23,7 +23,12 @@ export class EntrezMCP extends McpAgent {
 	// Optional Entrez API key - accessed from environment via method
 	private getApiKey(): string | undefined {
 		// Access through instance environment
-		return this.workerEnv?.NCBI_API_KEY || EntrezMCP.currentEnv?.NCBI_API_KEY;
+		const apiKey = this.workerEnv?.NCBI_API_KEY || EntrezMCP.currentEnv?.NCBI_API_KEY;
+		// Don't return literal placeholder strings from environment
+		if (apiKey && apiKey.startsWith('${') && apiKey.endsWith('}')) {
+			return undefined;
+		}
+		return apiKey;
 	}
 
 	// Static property to hold the current environment during request processing (fallback)
@@ -1339,6 +1344,7 @@ node test-rate-limits.js`
 		// PubChem Compound Lookup - Get compound information
 		this.server.tool(
 			"pubchem_compound",
+			"Get detailed compound information from PubChem including chemical properties, synonyms, and classifications. Search by CID, name, SMILES, InChI, or molecular formula.",
 			{
 				identifier_type: z.enum(["cid", "name", "smiles", "inchi", "inchikey", "formula"]).describe("Type of identifier"),
 				identifier: z.string().describe("Compound identifier"),
@@ -1396,6 +1402,7 @@ node test-rate-limits.js`
 		// PubChem Substance Lookup - Get substance information
 		this.server.tool(
 			"pubchem_substance",
+			"Get substance information from PubChem including substance records, synonyms, and cross-references. Search by SID, source ID, name, or external references.",
 			{
 				identifier_type: z.enum(["sid", "sourceid", "name", "xref"]).describe("Type of identifier"),
 				identifier: z.string().describe("Substance identifier"),
@@ -1450,6 +1457,7 @@ node test-rate-limits.js`
 		// PubChem BioAssay Lookup - Get bioassay information
 		this.server.tool(
 			"pubchem_bioassay",
+			"Get bioassay information from PubChem including assay descriptions, targets, and activity data. Search by AID, target, or activity type.",
 			{
 				identifier_type: z.enum(["aid", "listkey", "target", "activity"]).describe("Type of identifier"),
 				identifier: z.string().describe("BioAssay identifier"),
@@ -1504,6 +1512,7 @@ node test-rate-limits.js`
 		// PubChem Structure Search - Search by chemical structure
 		this.server.tool(
 			"pubchem_structure_search",
+			"Perform structure-based searches in PubChem including identity, substructure, superstructure, and similarity searches. Input chemical structures as SMILES, InChI, SDF, or MOL.",
 			{
 				structure_type: z.enum(["smiles", "inchi", "sdf", "mol"]).describe("Type of structure input"),
 				structure: z.string().describe("Chemical structure representation"),
@@ -1602,6 +1611,7 @@ node test-rate-limits.js`
 		// PMC ID Converter - Convert between PMC, PMID, DOI, MID
 		this.server.tool(
 			"pmc_id_converter",
+			"Convert between different PMC article identifiers including PMC IDs, PubMed IDs (PMID), DOIs, and Manuscript IDs (MID). Supports up to 200 IDs per request.",
 			{
 				ids: z.string().describe("Comma-separated list of IDs to convert (up to 200)"),
 				idtype: z.enum(["pmcid", "pmid", "mid", "doi"]).optional().describe("Type of input IDs (auto-detected if not specified)"),
@@ -1665,6 +1675,7 @@ node test-rate-limits.js`
 		// PMC Open Access Service - Check if article is available in Open Access
 		this.server.tool(
 			"pmc_oa_service",
+			"Check if a PMC article is available in the Open Access subset and get download links for full-text content. Works with PMC IDs, PubMed IDs, or DOIs.",
 			{
 				id: z.string().describe("PMC ID, PMID, or DOI"),
 				format: z.enum(["xml", "json"]).optional().default("xml").describe("Output format"),
@@ -1722,6 +1733,7 @@ node test-rate-limits.js`
 		// PMC Citation Exporter - Get formatted citations for PMC articles
 		this.server.tool(
 			"pmc_citation_exporter",
+			"Export properly formatted citations for PMC articles in various bibliographic formats including RIS, NBIB, MEDLINE, and BibTeX for use in reference managers.",
 			{
 				id: z.string().describe("PMC ID or PMID"),
 				format: z.enum(["ris", "nbib", "medline", "bibtex"]).describe("Citation format"),
