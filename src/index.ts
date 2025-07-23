@@ -20,6 +20,21 @@ export class EntrezMCP extends McpAgent {
 	// Instance-based environment storage instead of static
 	private workerEnv: Env | undefined;
 
+	// Proper Durable Object constructor that captures the environment
+	constructor(ctx?: any, env?: Env) {
+		super(ctx, env);
+		if (env) {
+			this.workerEnv = env;
+			console.log("EntrezMCP constructor: environment bindings available:", {
+				hasJsonToSqlDO: !!env.JSON_TO_SQL_DO,
+				hasMcpObject: !!env.MCP_OBJECT,
+				hasApiKey: !!env.NCBI_API_KEY
+			});
+		} else {
+			console.log("EntrezMCP constructor: no environment provided");
+		}
+	}
+
 	// Optional Entrez API key - accessed from environment via method
 	private getApiKey(): string | undefined {
 		// Access through instance environment
@@ -642,16 +657,14 @@ node test-rate-limits.js`
 					if (payloadSize < 1024 && parseResult.diagnostics.mesh_availability !== 'none') {
 						return {
 							content: [{ type: "text", text: JSON.stringify({
-								entities: processedData,
-								diagnostics: parseResult.diagnostics,
-								message: "Small dataset - returned directly without staging"
-							}, null, 2) }],
-							_meta: { 
-								bypassed: true, 
-								reason: "small_payload", 
+								status: "success_direct",
+								message: "Small dataset returned directly (no staging needed)",
+								entity_count: processedData.length,
 								size_bytes: payloadSize,
-								diagnostics: parseResult.diagnostics 
-							}
+								data: processedData,
+								diagnostics: parseResult.diagnostics,
+								note: "For larger datasets, use efetch_and_stage which stages data in SQL for efficient querying"
+							}, null, 2) }]
 						};
 					}
 
@@ -667,9 +680,30 @@ node test-rate-limits.js`
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify(parseResult)
 					});
-					const stagingResult = await stagingResponse.json();
+					const stagingResult = await stagingResponse.json() as any;
 
-					return { content: [{ type: "text", text: JSON.stringify(stagingResult, null, 2) }] };
+					// Return a highly readable, token-efficient summary
+					const details = stagingResult.processing_details || {};
+					const summary = `✅ **Data Successfully Staged in SQL Database**
+
+🗃️  **Data Access ID**: \`${stagingResult.data_access_id}\`
+📊  **Records Staged**: ${details.total_rows || 0} rows across ${details.table_count || 0} tables
+📈  **Data Quality**: ${Math.round((details.data_quality?.completeness_score || 0) * 100)}% complete
+📋  **Tables Created**: ${details.tables_created?.join(', ') || 'none'}
+
+## 🚀 Quick Start Queries:
+${details.schema_guidance?.recommended_queries?.slice(0, 3).map((q: any, i: number) => 
+	`${i + 1}. \`${q.sql}\` - ${q.description}`
+).join('\n') || '1. `SELECT * FROM article LIMIT 5` - View sample articles\n2. `SELECT * FROM author LIMIT 10` - View sample authors\n3. `SELECT * FROM meshterm LIMIT 10` - View sample MeSH terms'}
+
+## 📋 Next Steps:
+• Use **\`query_staged_data\`** with the data_access_id above to run any SQL query
+• Use **\`get_staged_schema\`** to see full table structures and advanced query examples
+• All data supports standard SQL: SELECT, JOIN, WHERE, GROUP BY, ORDER BY, etc.
+
+💡 **Pro tip**: Start with \`SELECT * FROM article LIMIT 5\` to explore your data structure!`;
+
+					return { content: [{ type: "text", text: summary }] };
 				} catch (error) {
 					return {
 						content: [
