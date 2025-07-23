@@ -360,6 +360,50 @@ export class EntrezMCP extends McpAgent {
 		return `${this.baseUrl}${endpoint}?${cleanParams}`;
 	}
 
+	// Intelligent staging bypass logic
+	private shouldBypassStaging(entities: any[], diagnostics: any, payloadSize: number): { bypass: boolean; reason: string } {
+		const entityCount = entities.length;
+		
+		// Count different entity types
+		const entityTypes = new Set(entities.map(e => e.type));
+		const entityTypeCount = entityTypes.size;
+		
+		// Estimate potential table count (entity types + junction tables)
+		const estimatedTableCount = entityTypeCount + Math.max(0, entityTypeCount - 1);
+		
+		// Check various bypass conditions
+		
+		// 1. Very small payload (< 1KB)
+		if (payloadSize < 1024) {
+			return { bypass: true, reason: "Small dataset (< 1KB) returned directly - no staging overhead needed" };
+		}
+		
+		// 2. Very few entities (< 10 total)
+		if (entityCount < 10) {
+			return { bypass: true, reason: "Few entities extracted (< 10) - direct return more efficient than SQL staging" };
+		}
+		
+		// 3. Only 1-2 entity types (minimal relational benefit)
+		if (entityTypeCount <= 2 && entityCount < 25) {
+			return { bypass: true, reason: "Simple structure with few entity types - SQL staging provides minimal benefit" };
+		}
+		
+		// 4. Poor data quality / parsing failure
+		if (diagnostics.failed_extractions?.length > 0 || diagnostics.mesh_availability === 'none') {
+			if (entityCount < 15) {
+				return { bypass: true, reason: "Limited data extraction success - returning parsed results directly" };
+			}
+		}
+		
+		// 5. Single article with basic info only
+		if (entityCount < 20 && entityTypeCount <= 3 && payloadSize < 2048) {
+			return { bypass: true, reason: "Single article with basic information - staging unnecessary for simple data" };
+		}
+		
+		// If none of the bypass conditions are met, proceed with staging
+		return { bypass: false, reason: "Dataset complexity justifies SQL staging for efficient querying" };
+	}
+
 	async init() {
 		// API Key Status - Check NCBI API key configuration and rate limits
 		this.server.tool(
@@ -652,18 +696,23 @@ node test-rate-limits.js`
 					const parseResult = parser.parse(rawContent);
 					const processedData = parseResult.entities;
 
-					// --- BYPASS AND STAGING LOGIC (Now receives clean structured data with diagnostics) ---
+					// --- INTELLIGENT BYPASS AND STAGING LOGIC ---
 					const payloadSize = JSON.stringify(processedData).length;
-					if (payloadSize < 1024 && parseResult.diagnostics.mesh_availability !== 'none') {
+					const entityCount = processedData.length;
+					
+					// Analyze data to determine if staging is beneficial
+					const shouldBypass = this.shouldBypassStaging(processedData, parseResult.diagnostics, payloadSize);
+					
+					if (shouldBypass.bypass) {
 						return {
 							content: [{ type: "text", text: JSON.stringify({
 								status: "success_direct",
-								message: "Small dataset returned directly (no staging needed)",
-								entity_count: processedData.length,
+								message: shouldBypass.reason,
+								entity_count: entityCount,
 								size_bytes: payloadSize,
 								data: processedData,
 								diagnostics: parseResult.diagnostics,
-								note: "For larger datasets, use efetch_and_stage which stages data in SQL for efficient querying"
+								note: "Data returned directly. For complex relational queries on larger datasets, staging provides SQL capabilities."
 							}, null, 2) }]
 						};
 					}
@@ -682,8 +731,24 @@ node test-rate-limits.js`
 					});
 					const stagingResult = await stagingResponse.json() as any;
 
+					// Check if we should return direct data even after staging for very simple results
+					const stagingDetails = stagingResult.processing_details || {};
+					if (stagingDetails.total_rows <= 15 && stagingDetails.table_count <= 2) {
+						return {
+							content: [{ type: "text", text: JSON.stringify({
+								status: "success_simple_staged",
+								message: "Simple dataset staged but returned directly for efficiency",
+								entity_count: entityCount,
+								data: processedData,
+								staging_summary: `${stagingDetails.total_rows} rows in ${stagingDetails.table_count} tables`,
+								data_access_id: stagingResult.data_access_id,
+								note: "Data is also available via SQL using the data_access_id if needed"
+							}, null, 2) }]
+						};
+					}
+
 					// Return a highly readable, token-efficient summary
-					const details = stagingResult.processing_details || {};
+					const details = stagingDetails;
 					const summary = `✅ **Data Successfully Staged in SQL Database**
 
 🗃️  **Data Access ID**: \`${stagingResult.data_access_id}\`
