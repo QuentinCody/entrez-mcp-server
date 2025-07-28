@@ -175,7 +175,235 @@ export class EntrezMCP extends McpAgent implements ToolContext {
 			}
 		}
 
+		// Apply XML optimization before returning
+		return this.optimizeXmlResponse(data, toolName);
+	}
+
+	// Helper method to optimize XML responses by removing verbose elements
+	private optimizeXmlResponse(data: string, toolName: string): string {
+		if (typeof data !== 'string' || !data.includes('<?xml')) {
+			return data;
+		}
+
+		let optimized = data;
+
+		// Remove DTD declarations (biggest token wasters)
+		optimized = optimized.replace(/<!DOCTYPE[\s\S]*?>/g, '');
+		
+		// Remove XML processing instructions
+		optimized = optimized.replace(/<\?xml[\s\S]*?\?>/g, '');
+		
+		// Remove empty elements
+		optimized = optimized.replace(/<([^>\/]+)>\s*<\/\1>/g, '');
+		
+		// Remove XML comments
+		optimized = optimized.replace(/<!--[\s\S]*?-->/g, '');
+		
+		// Tool-specific optimizations
+		optimized = this.applyToolSpecificOptimizations(optimized, toolName);
+
+		// Compact whitespace
+		optimized = optimized.replace(/>\s+</g, '><');
+		optimized = optimized.replace(/\s+/g, ' ');
+		
+		return optimized.trim();
+	}
+
+	// Apply tool-specific optimizations
+	private applyToolSpecificOptimizations(data: string, toolName: string): string {
+		switch (toolName) {
+			case 'EInfo':
+				// Remove description tags but keep field names and types
+				data = data.replace(/<Description>[\s\S]*?<\/Description>/g, '');
+				// Remove verbose menu names, keep short names
+				data = data.replace(/<MenuName>[\s\S]*?<\/MenuName>/g, '');
+				// Remove term counts (usually empty anyway)
+				data = data.replace(/<TermCount[^>]*\/>/g, '');
+				break;
+			
+			case 'ESummary':
+				// Remove Type attributes from Items
+				data = data.replace(/\s*Type="[^"]*"/g, '');
+				// Remove redundant empty items
+				data = data.replace(/<Item Name="[^"]*"><\/Item>/g, '');
+				break;
+			
+			case 'ESearch':
+				// Remove verbose translation sets if they exist
+				data = data.replace(/<TranslationSet>[\s\S]*?<\/TranslationSet>/g, '');
+				break;
+		}
 		return data;
+	}
+
+	// Query suggestion engine for common patterns and improvements
+	suggestQueryImprovements(query: string, database: string): string[] {
+		const suggestions: string[] = [];
+		const trimmed = query.trim().toLowerCase();
+		
+		// Suggest field-specific searches for common terms
+		if (database === 'pubmed') {
+			if (trimmed.includes('cancer') && !trimmed.includes('[')) {
+				suggestions.push("Try 'cancer[Title]' or 'cancer[MeSH]' for more precise results");
+			}
+			if (trimmed.includes('therapy') && !trimmed.includes('[')) {
+				suggestions.push("Consider 'therapy[Title/Abstract]' or 'therapeutic[MeSH]' for treatment-focused searches");
+			}
+			if (trimmed.match(/\b\d{4}\b/) && !trimmed.includes('[date]')) {
+				suggestions.push("Add '[Date]' after years for publication date searches (e.g., '2023[Date]')");
+			}
+			if (trimmed.includes(' and ') && !trimmed.includes('AND')) {
+				suggestions.push("Use uppercase 'AND' for Boolean operators instead of 'and'");
+			}
+		}
+		
+		// Suggest Boolean operator improvements
+		if (!trimmed.includes(' and ') && !trimmed.includes(' or ') && trimmed.split(' ').length > 3) {
+			suggestions.push("Consider using Boolean operators (AND, OR) to combine multiple terms effectively");
+		}
+		
+		// Suggest date range searches
+		if (trimmed.includes('recent') || trimmed.includes('latest')) {
+			suggestions.push("Use date fields for time-based searches: '2023[Date]:2024[Date]' or 'last 5 years[Date]'");
+		}
+		
+		// Suggest author search improvements
+		if (trimmed.match(/[a-z]+\s+[a-z]\b/i) && !trimmed.includes('[author]')) {
+			suggestions.push("For author searches, use format 'LastName FirstInitial[Author]' (e.g., 'Smith J[Author]')");
+		}
+		
+		return suggestions;
+	}
+
+	// Enhanced query validation with helpful suggestions
+	validateQuery(query: string, database: string): { valid: boolean; message?: string; suggestion?: string } {
+		if (!query || query.trim() === '') {
+			return { valid: false, message: "Query cannot be empty" };
+		}
+
+		const trimmed = query.trim();
+		
+		// Check for common syntax errors
+		if (trimmed.includes('[') && !trimmed.includes(']')) {
+			return { 
+				valid: false, 
+				message: "Unclosed field tag detected", 
+				suggestion: "Add closing bracket ']' to complete field specification (e.g., 'cancer[Title]')" 
+			};
+		}
+		
+		if (trimmed.includes(']') && !trimmed.includes('[')) {
+			return { 
+				valid: false, 
+				message: "Closing bracket without opening bracket", 
+				suggestion: "Add opening bracket '[' before field name (e.g., 'cancer[Title]')" 
+			};
+		}
+		
+		// Check for potentially problematic quotes
+		const singleQuotes = (trimmed.match(/'/g) || []).length;
+		const doubleQuotes = (trimmed.match(/"/g) || []).length;
+		if (singleQuotes % 2 !== 0 || doubleQuotes % 2 !== 0) {
+			return { 
+				valid: false, 
+				message: "Unmatched quotes detected", 
+				suggestion: "Ensure all quotes are properly paired or remove them for simple searches" 
+			};
+		}
+		
+		// Check for overly complex Boolean operators
+		const boolCount = (trimmed.match(/\b(AND|OR|NOT)\b/gi) || []).length;
+		if (boolCount > 10) {
+			return { 
+				valid: false, 
+				message: "Query too complex", 
+				suggestion: "Consider breaking into multiple simpler queries for better performance" 
+			};
+		}
+		
+		// Database-specific validations
+		if (database === 'pubmed') {
+			// Check for valid PubMed field names in brackets
+			const fieldMatches = trimmed.match(/\[([^\]]+)\]/g);
+			if (fieldMatches) {
+				const validPubMedFields = [
+					'Title', 'Author', 'Journal', 'MeSH', 'Affiliation', 'Abstract', 'Date',
+					'UID', 'PMID', 'DOI', 'Language', 'Publication Type', 'All Fields'
+				];
+				const invalidFields = fieldMatches
+					.map(field => field.slice(1, -1))
+					.filter(field => !validPubMedFields.some(valid => 
+						valid.toLowerCase() === field.toLowerCase()
+					));
+				
+				if (invalidFields.length > 0) {
+					return { 
+						valid: false, 
+						message: `Invalid PubMed field(s): ${invalidFields.join(', ')}`, 
+						suggestion: `Valid fields include: ${validPubMedFields.slice(0, 5).join(', ')}, etc.` 
+					};
+				}
+			}
+		}
+		
+		return { valid: true };
+	}
+
+	// Smart retmode selection based on use case
+	getOptimalRetmode(tool: string, database: string, intendedUse?: string): string {
+		// For staging operations, prefer structured formats
+		if (intendedUse === 'staging' || intendedUse === 'analysis') {
+			if (tool === 'efetch' && database === 'pubmed') return 'xml';
+			if (tool === 'einfo' || tool === 'esummary') return 'xml';
+			return 'json'; // Default to JSON for other structured operations
+		}
+		
+		// For sequence analysis, prefer appropriate formats
+		if (intendedUse === 'sequence_analysis') {
+			if (database === 'nuccore' || database === 'protein') return 'fasta';
+			return 'gb'; // GenBank format for detailed sequence info
+		}
+		
+		// For citation/bibliography, prefer structured formats
+		if (intendedUse === 'citation' || intendedUse === 'bibliography') {
+			return 'xml';
+		}
+		
+		// Default to JSON for most operations (more compact than XML)
+		return 'json';
+	}
+
+	// Determine if response should be staged due to size
+	shouldStageResponse(data: string, toolName: string): { shouldStage: boolean; reason: string; estimatedTokens: number } {
+		// Simple token estimation (roughly 4 chars = 1 token)
+		const estimatedTokens = Math.ceil(data.length / 4);
+		const tokenThreshold = 5000; // Stage responses likely to exceed 5k tokens
+		
+		// Always stage very large responses
+		if (estimatedTokens > tokenThreshold) {
+			return { 
+				shouldStage: true, 
+				reason: `Response too large (${estimatedTokens} estimated tokens > ${tokenThreshold} threshold)`,
+				estimatedTokens 
+			};
+		}
+
+		// Stage responses with high structural complexity
+		const complexityIndicators = [
+			(data.match(/<Field>/g) || []).length > 20, // EInfo with many fields
+			(data.match(/<DocSum>/g) || []).length > 10, // ESummary with many summaries
+			(data.match(/<Link>/g) || []).length > 50, // ELink with many links
+		];
+
+		if (complexityIndicators.some(indicator => indicator)) {
+			return { 
+				shouldStage: true, 
+				reason: "Response has high structural complexity, staging for efficient querying",
+				estimatedTokens 
+			};
+		}
+
+		return { shouldStage: false, reason: "Response size manageable for direct return", estimatedTokens };
 	}
 
 	// Helper method to format response data (handles both strings and objects)

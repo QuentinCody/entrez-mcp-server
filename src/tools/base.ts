@@ -13,6 +13,10 @@ export interface ToolContext {
 	formatResponseData(data: any): string;
 	buildUrl(endpoint: string, params: URLSearchParams): string;
 	shouldBypassStaging(processedData: any[], diagnostics: any, payloadSize: number): { bypass: boolean; reason: string };
+	getOptimalRetmode(tool: string, database: string, intendedUse?: string): string;
+	shouldStageResponse(data: string, toolName: string): { shouldStage: boolean; reason: string; estimatedTokens: number };
+	validateQuery(query: string, database: string): { valid: boolean; message?: string; suggestion?: string };
+	suggestQueryImprovements(query: string, database: string): string[];
 }
 
 export abstract class BaseTool {

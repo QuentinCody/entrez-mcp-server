@@ -203,6 +203,176 @@ export class PubMedXMLParser implements IContentParser {
     }
 }
 
+// Enhanced parser for EInfo responses with structured field and link data
+export class EInfoXMLParser implements IContentParser {
+    parse(content: string): { entities: { type: string; data: any }[]; diagnostics: ParsingDiagnostics } {
+        const allEntities: { type: string; data: any }[] = [];
+        const diagnostics: ParsingDiagnostics = {
+            method_used: 'einfo_extraction',
+            terms_found: 0,
+            failed_extractions: [],
+            warnings: [],
+            indexing_status: 'complete',
+            mesh_availability: 'none'
+        };
+
+        // Extract database info
+        const dbNameMatch = content.match(/<DbName>([^<]+)<\/DbName>/);
+        const dbDescMatch = content.match(/<Description>([^<]+)<\/Description>/);
+        const countMatch = content.match(/<Count>([^<]+)<\/Count>/);
+        const lastUpdateMatch = content.match(/<LastUpdate>([^<]+)<\/LastUpdate>/);
+
+        if (dbNameMatch) {
+            allEntities.push({
+                type: 'database_info',
+                data: {
+                    uid: `db_${dbNameMatch[1]}`,
+                    name: dbNameMatch[1],
+                    description: dbDescMatch ? dbDescMatch[1] : null,
+                    record_count: countMatch ? parseInt(countMatch[1], 10) : null,
+                    last_update: lastUpdateMatch ? lastUpdateMatch[1] : null
+                }
+            });
+        }
+
+        // Extract searchable fields
+        const fieldMatches = content.match(/<Field>[\s\S]*?<\/Field>/g) || [];
+        fieldMatches.forEach((fieldXml, index) => {
+            const nameMatch = fieldXml.match(/<Name>([^<]+)<\/Name>/);
+            const fullNameMatch = fieldXml.match(/<FullName>([^<]+)<\/FullName>/);
+            const isDateMatch = fieldXml.match(/<IsDate>([^<]+)<\/IsDate>/);
+            const isNumericalMatch = fieldXml.match(/<IsNumerical>([^<]+)<\/IsNumerical>/);
+
+            if (nameMatch) {
+                allEntities.push({
+                    type: 'searchable_field',
+                    data: {
+                        uid: `field_${nameMatch[1]}_${index}`,
+                        name: nameMatch[1],
+                        full_name: fullNameMatch ? fullNameMatch[1] : null,
+                        is_date: isDateMatch ? isDateMatch[1] === 'Y' : false,
+                        is_numerical: isNumericalMatch ? isNumericalMatch[1] === 'Y' : false
+                    }
+                });
+            }
+        });
+
+        // Extract available links
+        const linkMatches = content.match(/<Link>[\s\S]*?<\/Link>/g) || [];
+        linkMatches.forEach((linkXml, index) => {
+            const nameMatch = linkXml.match(/<Name>([^<]+)<\/Name>/);
+            const menuMatch = linkXml.match(/<Menu>([^<]+)<\/Menu>/);
+            const dbToMatch = linkXml.match(/<DbTo>([^<]+)<\/DbTo>/);
+
+            if (nameMatch) {
+                allEntities.push({
+                    type: 'link_info',
+                    data: {
+                        uid: `link_${nameMatch[1]}_${index}`,
+                        name: nameMatch[1],
+                        menu_name: menuMatch ? menuMatch[1] : null,
+                        target_db: dbToMatch ? dbToMatch[1] : null
+                    }
+                });
+            }
+        });
+
+        diagnostics.terms_found = allEntities.length;
+        return { entities: allEntities, diagnostics };
+    }
+}
+
+// Enhanced parser for ESummary responses with structured document summaries
+export class ESummaryXMLParser implements IContentParser {
+    parse(content: string): { entities: { type: string; data: any }[]; diagnostics: ParsingDiagnostics } {
+        const allEntities: { type: string; data: any }[] = [];
+        const diagnostics: ParsingDiagnostics = {
+            method_used: 'esummary_extraction',
+            terms_found: 0,
+            failed_extractions: [],
+            warnings: [],
+            indexing_status: 'complete',
+            mesh_availability: 'none'
+        };
+
+        const docSumMatches = content.match(/<DocSum>[\s\S]*?<\/DocSum>/g) || [];
+        
+        for (const docSumXml of docSumMatches) {
+            const idMatch = docSumXml.match(/<Id>([^<]+)<\/Id>/);
+            if (!idMatch) continue;
+
+            const uid = idMatch[1];
+            const summary: any = { uid, pmid: uid };
+
+            // Extract common fields
+            const titleMatch = docSumXml.match(/<Item Name="Title"[^>]*>([^<]*)<\/Item>/);
+            const authorsMatch = docSumXml.match(/<Item Name="AuthorList"[^>]*>([\s\S]*?)<\/Item>/);
+            const journalMatch = docSumXml.match(/<Item Name="FullJournalName"[^>]*>([^<]*)<\/Item>/);
+            const pubDateMatch = docSumXml.match(/<Item Name="PubDate"[^>]*>([^<]*)<\/Item>/);
+            const doiMatch = docSumXml.match(/<Item Name="DOI"[^>]*>([^<]*)<\/Item>/);
+
+            summary.title = titleMatch ? titleMatch[1] : null;
+            summary.journal = journalMatch ? journalMatch[1] : null;
+            summary.pub_date = pubDateMatch ? pubDateMatch[1] : null;
+            summary.doi = doiMatch ? doiMatch[1] : null;
+
+            // Extract authors from AuthorList
+            if (authorsMatch) {
+                const authorItems = authorsMatch[1].match(/<Item Name="Author"[^>]*>([^<]*)<\/Item>/g) || [];
+                summary.authors = authorItems.map(item => {
+                    const authorMatch = item.match(/>([^<]*)</);
+                    return authorMatch ? authorMatch[1] : '';
+                }).filter(author => author);
+            }
+
+            allEntities.push({
+                type: 'document_summary',
+                data: summary
+            });
+        }
+
+        diagnostics.terms_found = allEntities.length;
+        return { entities: allEntities, diagnostics };
+    }
+}
+
+// Enhanced parser for BLAST submit responses to extract RID
+export class BlastSubmitParser implements IContentParser {
+    parse(content: string): { entities: { type: string; data: any }[]; diagnostics: ParsingDiagnostics } {
+        const allEntities: { type: string; data: any }[] = [];
+        const diagnostics: ParsingDiagnostics = {
+            method_used: 'blast_submit_extraction',
+            terms_found: 0,
+            failed_extractions: [],
+            warnings: [],
+            indexing_status: 'complete',
+            mesh_availability: 'none'
+        };
+
+        // Extract RID from HTML response
+        const ridMatch = content.match(/value="([A-Z0-9]+)"\s+id="rid"|RID\s*=\s*([A-Z0-9]+)/i);
+        const estimateMatch = content.match(/We estimate that results will be ready in (\d+)/i);
+        
+        if (ridMatch) {
+            const rid = ridMatch[1] || ridMatch[2];
+            allEntities.push({
+                type: 'blast_job',
+                data: {
+                    uid: rid,
+                    rid: rid,
+                    status: 'submitted',
+                    estimated_time: estimateMatch ? parseInt(estimateMatch[1], 10) : null
+                }
+            });
+            diagnostics.terms_found = 1;
+        } else {
+            diagnostics.failed_extractions.push('Could not extract RID from BLAST response');
+        }
+
+        return { entities: allEntities, diagnostics };
+    }
+}
+
 // Enhanced fallback parser for unstructured data.
 export class FallbackParser implements IContentParser {
     parse(content: any): { entities: { type: string; data: any }[]; diagnostics: ParsingDiagnostics } {
@@ -228,4 +398,24 @@ export function getParserFor(db: string, rettype?: string): IContentParser {
         return new PubMedXMLParser();
     }
     return new FallbackParser();
+}
+
+// Factory to get parser for specific tool responses
+export function getParserForTool(toolName: string, content: string): IContentParser {
+    switch (toolName) {
+        case 'EInfo':
+            return new EInfoXMLParser();
+        case 'ESummary':
+            return new ESummaryXMLParser();
+        case 'EFetch':
+            // Determine database from content or use PubMed as default
+            if (content.includes('<PubmedArticle>')) {
+                return new PubMedXMLParser();
+            }
+            return new FallbackParser();
+        case 'BLAST Submit':
+            return new BlastSubmitParser();
+        default:
+            return new FallbackParser();
+    }
 } 

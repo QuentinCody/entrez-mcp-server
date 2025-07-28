@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BaseTool } from "./base.js";
+import { getParserForTool } from "../lib/parsers.js";
 
 export class BlastSubmitTool extends BaseTool {
 	register(): void {
@@ -57,6 +58,21 @@ export class BlastSubmitTool extends BaseTool {
 					const response = await fetch(url, { method: 'POST' });
 					const data = await this.parseResponse(response, "BLAST Submit");
 
+					// Parse the BLAST response to extract structured data
+					const parser = getParserForTool("BLAST Submit", data);
+					const parseResult = parser.parse(data);
+					
+					if (parseResult.entities.length > 0) {
+						const jobData = parseResult.entities[0].data;
+						return {
+							content: [{
+								type: "text",
+								text: `✅ **BLAST Job Successfully Submitted**\n\n🆔 **Request ID (RID)**: \`${jobData.rid}\`\n⏱️ **Estimated Time**: ${jobData.estimated_time ? `${jobData.estimated_time} seconds` : 'Unknown'}\n📊 **Status**: ${jobData.status}\n\n## 🚀 Next Steps:\nUse **\`blast_get\`** with RID \`${jobData.rid}\` to retrieve results when ready.\n\n💡 **Pro tip**: BLAST jobs typically take 15-30 seconds for small queries.`
+							}]
+						};
+					}
+
+					// Fallback to raw response if parsing failed
 					return {
 						content: [
 							{
