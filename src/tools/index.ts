@@ -1,53 +1,26 @@
 import { ToolContext } from "./base.js";
 import { ApiKeyStatusTool } from "./api-key-status.js";
-import { EInfoTool } from "./einfo.js";
-import { ESearchTool } from "./esearch.js";
-import { ESummaryTool } from "./esummary.js";
-import { EFetchAndStageTool, QueryStagedDataTool, GetStagedSchemaTool } from "./staging.js";
-import { ELinkTool, EPostTool, EGQueryTool, ESpellTool } from "./eutils.js";
-import { BlastSubmitTool, BlastGetTool } from "./blast.js";
-import { PubChemCompoundTool, PubChemSubstanceTool, PubChemBioAssayTool, PubChemStructureSearchTool } from "./pubchem.js";
-import { PMCIdConverterTool, PMCOpenAccessServiceTool, PMCCitationExporterTool } from "./pmc.js";
+import { EntrezQueryTool } from "./consolidated-entrez.js";
+import { DataManagerTool } from "./consolidated-data.js";
+import { ExternalAPIsTool } from "./consolidated-external.js";
 
 export class ToolRegistry {
 	private tools: any[] = [];
 
 	constructor(context: ToolContext) {
-		// Register all tools
+		// Register consolidated tools (19 → 4 tools)
 		this.tools = [
-			// Core API status tools
+			// System utilities
 			new ApiKeyStatusTool(context),
 			
-			// Basic E-utilities
-			new EInfoTool(context),
-			new ESearchTool(context),
-			new ESummaryTool(context),
+			// Unified E-utilities interface (combines 8 tools)
+			new EntrezQueryTool(context),
 			
-			// Data staging tools
-			new EFetchAndStageTool(context),
-			new QueryStagedDataTool(context),
-			new GetStagedSchemaTool(context),
+			// Unified data management (combines 3 tools)
+			new DataManagerTool(context),
 			
-			// Advanced E-utilities
-			new ELinkTool(context),
-			new EPostTool(context),
-			new EGQueryTool(context),
-			new ESpellTool(context),
-			
-			// BLAST tools
-			new BlastSubmitTool(context),
-			new BlastGetTool(context),
-			
-			// PubChem tools
-			new PubChemCompoundTool(context),
-			new PubChemSubstanceTool(context),
-			new PubChemBioAssayTool(context),
-			new PubChemStructureSearchTool(context),
-			
-			// PMC tools
-			new PMCIdConverterTool(context),
-			new PMCOpenAccessServiceTool(context),
-			new PMCCitationExporterTool(context),
+			// Unified external APIs (combines 9 tools)
+			new ExternalAPIsTool(context),
 		];
 	}
 
@@ -56,27 +29,11 @@ export class ToolRegistry {
 	}
 }
 
-// Export types and tool classes for individual use if needed
+// Export types and consolidated tool classes
 export type { ToolContext };
 export {
 	ApiKeyStatusTool,
-	EInfoTool,
-	ESearchTool,
-	ESummaryTool,
-	EFetchAndStageTool,
-	QueryStagedDataTool,
-	GetStagedSchemaTool,
-	ELinkTool,
-	EPostTool,
-	EGQueryTool,
-	ESpellTool,
-	BlastSubmitTool,
-	BlastGetTool,
-	PubChemCompoundTool,
-	PubChemSubstanceTool,
-	PubChemBioAssayTool,
-	PubChemStructureSearchTool,
-	PMCIdConverterTool,
-	PMCOpenAccessServiceTool,
-	PMCCitationExporterTool,
+	EntrezQueryTool,
+	DataManagerTool,
+	ExternalAPIsTool,
 };
