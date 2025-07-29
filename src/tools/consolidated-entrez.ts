@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BaseTool } from "./base.js";
+import { ResponseFormatter } from "../lib/response-formatter.js";
 
 export class EntrezQueryTool extends BaseTool {
 	register(): void {
@@ -39,7 +40,11 @@ export class EntrezQueryTool extends BaseTool {
 				
 				// Staging control
 				force_staging: z.boolean().optional().describe("Force staging for large/complex results"),
-				intended_use: z.enum(["search", "staging", "analysis", "citation"]).optional().describe("Intended use for format optimization")
+				intended_use: z.enum(["search", "staging", "analysis", "citation"]).optional().describe("Intended use for format optimization"),
+				
+				// Response formatting control
+				compact_mode: z.boolean().optional().describe("Enable compact, token-efficient response formatting"),
+				max_tokens: z.number().optional().describe("Maximum tokens for response formatting (default: 500)")
 			},
 			async (params) => {
 				try {
@@ -158,7 +163,7 @@ export class EntrezQueryTool extends BaseTool {
 	}
 
 	private async handleSummary(params: any) {
-		const { database, ids, retmax, retmode } = params;
+		const { database, ids, retmax, retmode, compact_mode, max_tokens, intended_use } = params;
 		
 		const summaryParams = new URLSearchParams({
 			db: database,
@@ -182,10 +187,20 @@ export class EntrezQueryTool extends BaseTool {
 			return this.stageAndReturnSummary(data, ids);
 		}
 
+		// Use new response formatter for more efficient output
+		const formatOptions = {
+			maxTokens: max_tokens,
+			intendedUse: intended_use,
+			compactMode: compact_mode
+		};
+		
+		const formattedData = ResponseFormatter.formatESummary(data, formatOptions);
+		const estimatedTokens = ResponseFormatter.estimateTokens(formattedData);
+
 		return {
 			content: [{
-				type: "text",
-				text: `**E-utilities Summary** (${stagingInfo.estimatedTokens} tokens):\n\n${this.formatResponseData(data)}`
+				type: "text" as const,
+				text: `**E-utilities Summary** (${estimatedTokens} tokens):\n\n${formattedData}`
 			}]
 		};
 	}
@@ -223,7 +238,7 @@ export class EntrezQueryTool extends BaseTool {
 	}
 
 	private async handleFetch(params: any) {
-		const { database, ids, rettype, retmode } = params;
+		const { database, ids, rettype, retmode, compact_mode, max_tokens, intended_use } = params;
 		
 		const fetchParams = new URLSearchParams({
 			db: database,
@@ -246,10 +261,20 @@ export class EntrezQueryTool extends BaseTool {
 			return this.stageAndReturnFetch(data, database, ids, rettype);
 		}
 
+		// Use enhanced formatter for fetch results
+		const formatOptions = {
+			maxTokens: max_tokens,
+			intendedUse: intended_use,
+			compactMode: compact_mode
+		};
+		
+		const formattedData = ResponseFormatter.formatEFetch(data, rettype, formatOptions);
+		const estimatedTokens = ResponseFormatter.estimateTokens(formattedData);
+
 		return {
 			content: [{
-				type: "text",
-				text: `**E-utilities Fetch Results**:\n\n${this.formatResponseData(data)}`
+				type: "text" as const,
+				text: `**E-utilities Fetch Results** (${estimatedTokens} tokens):\n\n${formattedData}`
 			}]
 		};
 	}

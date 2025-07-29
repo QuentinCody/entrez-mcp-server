@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BaseTool } from "./base.js";
+import { SmartQueryGenerator, QueryContext } from "../lib/smart-query-generator.js";
 
 export class DataManagerTool extends BaseTool {
 	register(): void {
@@ -22,7 +23,12 @@ export class DataManagerTool extends BaseTool {
 				
 				// Advanced options
 				force_direct: z.boolean().optional().describe("Force direct return instead of staging"),
-				include_raw: z.boolean().optional().describe("Include raw data in staging response")
+				include_raw: z.boolean().optional().describe("Include raw data in staging response"),
+				
+				// Smart query options
+				intended_use: z.enum(["search", "analysis", "citation", "full"]).optional().describe("Context for intelligent query generation"),
+				max_tokens: z.number().optional().describe("Maximum tokens for query results"),
+				smart_summary: z.boolean().optional().describe("Generate intelligent summary instead of raw SQL results")
 			},
 			async (params) => {
 				try {
@@ -115,7 +121,7 @@ export class DataManagerTool extends BaseTool {
 	}
 
 	private async handleQuery(params: any) {
-		const { data_access_id, sql } = params;
+		const { data_access_id, sql, intended_use, max_tokens, smart_summary } = params;
 		
 		try {
 			// Get Durable Object instance
@@ -127,8 +133,13 @@ export class DataManagerTool extends BaseTool {
 			const doId = env.JSON_TO_SQL_DO.idFromName(data_access_id);
 			const doStub = env.JSON_TO_SQL_DO.get(doId);
 			
-			// Execute SQL query
-			const queryResponse = await doStub.fetch(new Request("https://do/query", {
+			// If no SQL provided and smart_summary is enabled, generate intelligent queries
+			if (!sql && smart_summary) {
+				return await this.generateSmartSummary(doStub, params);
+			}
+			
+			// Execute user-provided SQL query
+			const queryResponse = await doStub.fetch(new Request("https://do/query-enhanced", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ sql })
@@ -141,9 +152,29 @@ export class DataManagerTool extends BaseTool {
 
 			const result = await queryResponse.json();
 			
+			// Format result based on context
+			if (smart_summary && intended_use) {
+				const formatted = SmartQueryGenerator['formatQueryResult'](result, {
+					operation: 'query',
+					database: 'staged_data',
+					intendedUse: intended_use,
+					maxTokens: max_tokens
+				});
+				
+				const tokenEstimate = SmartQueryGenerator['estimateTokens'](formatted);
+				
+				return {
+					content: [{
+						type: "text" as const,
+						text: `📊 **SQL Query Results** (${tokenEstimate} tokens)\n\n${formatted}`
+					}]
+				};
+			}
+			
+			// Default JSON response for backward compatibility
 			return {
 				content: [{
-					type: "text",
+					type: "text" as const,
 					text: `📊 **SQL Query Results**\n\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\``
 				}]
 			};
@@ -212,7 +243,7 @@ export class DataManagerTool extends BaseTool {
 			const doStub = env.JSON_TO_SQL_DO.get(doId);
 
 			// Stage the data
-			const stagingResponse = await doStub.fetch(new Request("https://do/stage", {
+			const stagingResponse = await doStub.fetch(new Request("https://do/process", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
@@ -268,6 +299,84 @@ export class DataManagerTool extends BaseTool {
 		}
 
 		return response;
+	}
+
+	private async generateSmartSummary(doStub: any, params: any) {
+		const { intended_use = 'analysis', max_tokens = 500, data_access_id } = params;
+		
+		try {
+			// Get schema first
+			const schemaResponse = await doStub.fetch(new Request("https://do/schema", {
+				method: "GET"
+			}));
+			
+			if (!schemaResponse.ok) {
+				throw new Error("Unable to retrieve schema for smart query generation");
+			}
+			
+			const schemaData = await schemaResponse.json();
+			
+			// Generate context-aware queries
+			const queryContext: QueryContext = {
+				operation: 'smart_summary',
+				database: 'staged_data',
+				intendedUse: intended_use,
+				maxTokens: max_tokens
+			};
+			
+			const queries = SmartQueryGenerator.generateContextualQueries(schemaData, queryContext);
+			
+			// Execute queries and format results
+			const queryExecutor = async (sql: string) => {
+				const response = await doStub.fetch(new Request("https://do/query-enhanced", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ sql })
+				}));
+				
+				if (!response.ok) {
+					throw new Error(`Query failed: ${sql}`);
+				}
+				
+				return await response.json();
+			};
+			
+			const smartResult = await SmartQueryGenerator.executeAndFormat(
+				queries, 
+				queryExecutor, 
+				queryContext
+			);
+			
+			let responseText = `${smartResult.summary} (${smartResult.tokenEstimate} tokens)\n\n`;
+			responseText += `## 🔍 **Key Insights**:\n`;
+			smartResult.keyFindings.forEach((finding, i) => {
+				responseText += `${i + 1}. ${finding}\n`;
+			});
+			
+			responseText += `\n## 📊 **Analysis Results**:\n${smartResult.summary}\n\n`;
+			
+			responseText += `## 💡 **Available Operations**:\n`;
+			smartResult.suggestedQueries.forEach(suggestion => {
+				responseText += `• ${suggestion}\n`;
+			});
+			
+			responseText += `\n**Dataset ID**: \`${data_access_id}\``;
+			
+			return {
+				content: [{
+					type: "text" as const,
+					text: responseText
+				}]
+			};
+			
+		} catch (error) {
+			return {
+				content: [{
+					type: "text" as const,
+					text: `❌ **Smart Summary Generation Failed**: ${error instanceof Error ? error.message : String(error)}\n\nFallback: Use manual SQL queries with the 'sql' parameter.`
+				}]
+			};
+		}
 	}
 
 	private async generateDataAccessId(data: any): Promise<string> {
