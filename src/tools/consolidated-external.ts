@@ -5,28 +5,18 @@ export class ExternalAPIsTool extends BaseTool {
 	register(): void {
 		this.context.server.tool(
 			"external_apis",
-			"Unified interface for external NCBI services: BLAST sequence similarity, PubChem chemical data, and PMC full-text articles. Combines 9 specialized tools into one optimized interface.",
+			"Unified interface for external NCBI services: PubChem chemical data and PMC full-text articles. Combines specialized tools into one optimized interface.",
 			{
 				service: z.enum([
-					"blast", "pubchem", "pmc"
+					"pubchem", "pmc"
 				]).describe("External service to access"),
 				
 				operation: z.enum([
-					// BLAST operations
-					"submit", "get_results",
 					// PubChem operations  
 					"compound", "substance", "bioassay", "structure_search",
 					// PMC operations
 					"id_convert", "oa_service", "citation_export"
 				]).describe("Service operation to perform"),
-				
-				// BLAST parameters
-				query: z.string().optional().describe("BLAST query sequence (FASTA, accession, or GI)"),
-				database_name: z.string().optional().describe("BLAST database (nt, nr, swissprot, etc.)"),
-				program: z.enum(["blastn", "blastp", "blastx", "tblastn", "tblastx"]).optional().describe("BLAST program"),
-				rid: z.string().optional().describe("BLAST Request ID for retrieving results"),
-				expect: z.number().optional().default(10).describe("BLAST expect value threshold"),
-				format_type: z.enum(["HTML", "Text", "XML2", "XML2_S", "JSON2", "JSON2_S", "SAM"]).optional().default("XML2").describe("BLAST output format"),
 				
 				// PubChem parameters
 				identifier: z.string().optional().describe("Chemical identifier (name, CID, SID, etc.)"),
@@ -59,8 +49,6 @@ export class ExternalAPIsTool extends BaseTool {
 					
 					// Route to appropriate service handler
 					switch (service) {
-						case "blast":
-							return await this.handleBLAST(operation, params);
 						case "pubchem":
 							return await this.handlePubChem(operation, params);
 						case "pmc":
@@ -82,7 +70,6 @@ export class ExternalAPIsTool extends BaseTool {
 
 	private validateServiceOperation(service: string, operation: string) {
 		const validCombinations: Record<string, string[]> = {
-			blast: ["submit", "get_results"],
 			pubchem: ["compound", "substance", "bioassay", "structure_search"],
 			pmc: ["id_convert", "oa_service", "citation_export"]
 		};
@@ -92,115 +79,7 @@ export class ExternalAPIsTool extends BaseTool {
 		}
 	}
 
-	private async handleBLAST(operation: string, params: any) {
-		switch (operation) {
-			case "submit":
-				return await this.blastSubmit(params);
-			case "get_results":
-				return await this.blastGetResults(params);
-			default:
-				throw new Error(`Unknown BLAST operation: ${operation}`);
-		}
-	}
 
-	private async blastSubmit(params: any) {
-		const { query, database_name, program, expect, format_type } = params;
-		
-		if (!query || !database_name || !program) {
-			throw new Error("BLAST submit requires: query, database_name, and program");
-		}
-
-		// Validate sequence (basic check)
-		const cleanQuery = query.trim();
-		if (cleanQuery.length < 10) {
-			throw new Error("Query sequence too short (minimum 10 characters)");
-		}
-
-		const submitParams = new URLSearchParams({
-			CMD: "Put",
-			QUERY: cleanQuery,
-			DATABASE: database_name,
-			PROGRAM: program,
-			EMAIL: this.context.defaultEmail,
-			TOOL: this.context.defaultTool
-		});
-
-		if (expect !== undefined) submitParams.append("EXPECT", expect.toString());
-		if (format_type) submitParams.append("FORMAT_TYPE", format_type);
-
-		const url = `https://blast.ncbi.nlm.nih.gov/Blast.cgi?${submitParams}`;
-		const response = await fetch(url, { method: 'POST' });
-		const data = await this.parseResponse(response, "BLAST Submit");
-
-		// Extract RID using existing parser
-		const { getParserForTool } = await import("../lib/parsers.js");
-		const parser = getParserForTool("BLAST Submit", data);
-		const parseResult = parser.parse(data);
-		
-		if (parseResult.entities.length > 0) {
-			const jobData = parseResult.entities[0].data;
-			return {
-				content: [{
-					type: "text",
-					text: `✅ **BLAST Job Submitted**\n\n🆔 **RID**: \`${jobData.rid}\`\n⏱️ **Estimated Time**: ${jobData.estimated_time || 15} seconds\n\n💡 Use \`external_apis\` with service='blast', operation='get_results', rid='${jobData.rid}' to retrieve results.`
-				}]
-			};
-		}
-
-		throw new Error("Failed to extract job information from BLAST response");
-	}
-
-	private async blastGetResults(params: any) {
-		const { rid, format_type } = params;
-		
-		if (!rid) {
-			throw new Error("BLAST get_results requires: rid");
-		}
-
-		const getParams = new URLSearchParams({
-			CMD: "Get",
-			RID: rid.trim()
-		});
-
-		if (format_type) getParams.append("FORMAT_TYPE", format_type);
-
-		const url = `https://blast.ncbi.nlm.nih.gov/Blast.cgi?${getParams}`;
-		
-		// Implement polling with timeout
-		const maxRetries = 10;
-		const retryDelay = 5000; // 5 seconds
-		
-		for (let i = 0; i < maxRetries; i++) {
-			const response = await fetch(url);
-			const data = await this.parseResponse(response, "BLAST Get");
-			
-			// Check for completion
-			if (typeof data === 'string' && (data.includes("Status=WAITING") || data.includes("Status=UNKNOWN"))) {
-				if (i < maxRetries - 1) {
-					await new Promise(resolve => setTimeout(resolve, retryDelay));
-					continue;
-				} else {
-					return {
-						content: [{
-							type: "text",
-							text: `⏳ **BLAST Still Running** (${rid})\n\nJob is taking longer than expected. Please try again in a few minutes.`
-						}]
-					};
-				}
-			}
-			
-			// Results ready
-			const dataLength = typeof data === 'string' ? data.length : JSON.stringify(data).length;
-			return {
-				content: [{
-					type: "text",
-					text: `✅ **BLAST Results** (${(dataLength / 1024).toFixed(1)} KB)\n\n\`\`\`xml\n${typeof data === 'string' ? data.substring(0, 2000) : JSON.stringify(data).substring(0, 2000)}${dataLength > 2000 ? '...' : ''}\n\`\`\``
-				}]
-			};
-		}
-		
-		throw new Error("BLAST polling timeout exceeded");
-	}
 
 	private async handlePubChem(operation: string, params: any) {
 		switch (operation) {
@@ -229,11 +108,14 @@ export class ExternalAPIsTool extends BaseTool {
 		const response = await fetch(url);
 		const data = await this.parseResponse(response, "PubChem Compound");
 
+		// Extract key information for summary
+		const summary = this.extractPubchemSummary(data);
 		const dataSize = typeof data === 'string' ? data.length : JSON.stringify(data).length;
+		
 		return {
 			content: [{
 				type: "text",
-				text: `🧪 **PubChem Compound Data** (${(dataSize / 1024).toFixed(1)} KB)\n\n\`\`\`json\n${typeof data === 'string' ? data.substring(0, 1500) : JSON.stringify(data, null, 2).substring(0, 1500)}${dataSize > 1500 ? '...' : ''}\n\`\`\``
+				text: `🧪 **PubChem Compound Data** (${(dataSize / 1024).toFixed(1)} KB)\n\n${summary}\n\n**Full Data:**\n\`\`\`json\n${typeof data === 'string' ? data : JSON.stringify(data, null, 2)}\n\`\`\``
 			}]
 		};
 	}
@@ -391,4 +273,53 @@ export class ExternalAPIsTool extends BaseTool {
 			}]
 		};
 	}
+
+
+	// Helper method to extract key information from PubChem compound data
+	private extractPubchemSummary(data: any): string {
+		try {
+			let parsedData = data;
+			
+			// If it's a string, try to parse it as JSON
+			if (typeof data === 'string') {
+				try {
+					parsedData = JSON.parse(data);
+				} catch {
+					return '**Summary:** Could not parse JSON data\n';
+				}
+			}
+			
+			if (parsedData && parsedData.PC_Compounds && parsedData.PC_Compounds[0]) {
+				const compound = parsedData.PC_Compounds[0];
+				const cid = compound.id?.id?.cid;
+				const atomCount = compound.atoms?.aid?.length;
+				const bondCount = compound.bonds?.aid1?.length;
+				
+				let summary = '**Key Information:**\n';
+				if (cid) summary += `- **CID:** ${cid}\n`;
+				if (atomCount) summary += `- **Atoms:** ${atomCount}\n`;
+				if (bondCount) summary += `- **Bonds:** ${bondCount}\n`;
+				
+				// Extract molecular properties if available
+				if (compound.props) {
+					compound.props.forEach((prop: any) => {
+						if (prop.urn && prop.value) {
+							const label = prop.urn.label;
+							const value = prop.value.sval || prop.value.fval || prop.value.ival;
+							if (label && value) {
+								summary += `- **${label}:** ${value}\n`;
+							}
+						}
+					});
+				}
+				
+				return summary;
+			}
+			
+			return '**Summary:** Compound data structure not recognized\n';
+		} catch (error) {
+			return '**Summary:** Error parsing compound data\n';
+		}
+	}
+
 }

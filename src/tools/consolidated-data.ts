@@ -99,7 +99,7 @@ export class DataManagerTool extends BaseTool {
 
 		// Get parser and process data
 		const { getParserFor } = await import("../lib/parsers.js");
-		const parser = getParserFor("EFetch", rawData);
+		const parser = getParserFor(database, rettype);
 		const parseResult = parser.parse(rawData);
 
 		// Calculate staging metrics
@@ -262,8 +262,15 @@ export class DataManagerTool extends BaseTool {
 
 			let responseText = `✅ **Data Successfully Staged**\n\n`;
 			responseText += `🗃️  **Data Access ID**: \`${dataAccessId}\`\n`;
-			responseText += `📊  **Records Staged**: ${stagingInfo.totalRows} rows across ${stagingInfo.tableCount} tables\n`;
-			responseText += `📋  **Tables Created**: ${stagingInfo.tables.join(', ')}\n\n`;
+			
+			// Add defensive checks for staging info properties
+			if (stagingInfo.totalRows !== undefined && stagingInfo.tableCount !== undefined) {
+				responseText += `📊  **Records Staged**: ${stagingInfo.totalRows} rows across ${stagingInfo.tableCount} tables\n`;
+			}
+			if (stagingInfo.tables && Array.isArray(stagingInfo.tables)) {
+				responseText += `📋  **Tables Created**: ${stagingInfo.tables.join(', ')}\n`;
+			}
+			responseText += `\n`;
 			responseText += `## 🚀 Next Steps:\n`;
 			responseText += `• Use \`data_manager\` with operation='query' and this data_access_id to run SQL queries\n`;
 			responseText += `• Use \`data_manager\` with operation='schema' to see table structures\n\n`;

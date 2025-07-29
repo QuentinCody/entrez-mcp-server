@@ -1,6 +1,6 @@
 # NCBI Entrez MCP Server
 
-A comprehensive Model Context Protocol (MCP) server providing access to NCBI's complete suite of APIs including E-utilities, BLAST, PubChem, and PMC services.
+A comprehensive Model Context Protocol (MCP) server providing access to NCBI's APIs including E-utilities, PubChem, and PMC services.
 
 ## 🚀 Quick Start
 
@@ -15,7 +15,7 @@ npm start
 
 ## 🎯 Features
 
-- **Complete NCBI API Coverage**: E-utilities, BLAST, PubChem PUG, PMC APIs
+- **Complete NCBI API Coverage**: E-utilities, PubChem PUG, PMC APIs
 - **No Setup Required**: Works immediately without any configuration
 - **Optional Performance Boost**: Add your free NCBI API key for 3x better rate limits
 - **Rate Limiting**: Built-in respect for NCBI rate limits (3/sec → 10/sec with API key)

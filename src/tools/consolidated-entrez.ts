@@ -194,7 +194,7 @@ export class EntrezQueryTool extends BaseTool {
 			compactMode: compact_mode
 		};
 		
-		const formattedData = ResponseFormatter.formatESummary(data, formatOptions);
+		const formattedData = ResponseFormatter.formatESummary(data, formatOptions, database);
 		const estimatedTokens = ResponseFormatter.estimateTokens(formattedData);
 
 		return {
@@ -359,15 +359,78 @@ export class EntrezQueryTool extends BaseTool {
 		});
 
 		const url = this.buildUrl("espell.fcgi", spellParams);
-		const response = await fetch(url);
-		const data = await this.parseResponse(response, "ESpell");
+		
+		try {
+			const response = await fetch(url);
+			
+			// Add better error handling for spell check
+			if (!response.ok) {
+				return {
+					content: [{
+						type: "text",
+						text: `**Spelling Check Unavailable**\n\nNCBI ESpell service returned error ${response.status}. The term "${term}" cannot be checked at this time.\n\n💡 **Suggested alternatives**: Try searching for "${term}" directly or use common variations.`
+					}]
+				};
+			}
 
-		return {
-			content: [{
-				type: "text",
-				text: `**Spelling Suggestions**:\n\n${this.formatResponseData(data)}`
-			}]
-		};
+			const rawText = await response.text();
+			
+			// Check if response is empty or malformed
+			if (!rawText || rawText.trim().length === 0) {
+				return {
+					content: [{
+						type: "text",
+						text: `**No Spelling Suggestions**\n\nThe term "${term}" appears to be correctly spelled or no alternatives were found.`
+					}]
+				};
+			}
+
+			// Try to parse XML and extract suggestions
+			const correctedQueryMatch = rawText.match(/<CorrectedQuery>([^<]+)<\/CorrectedQuery>/);
+			const spelledQueryMatch = rawText.match(/<SpelledQuery>([^<]+)<\/SpelledQuery>/);
+			
+			if (correctedQueryMatch || spelledQueryMatch) {
+				let suggestions = '';
+				if (correctedQueryMatch) {
+					suggestions += `**Corrected**: ${correctedQueryMatch[1]}\n`;
+				}
+				if (spelledQueryMatch) {
+					suggestions += `**Alternative**: ${spelledQueryMatch[1]}\n`;
+				}
+				
+				return {
+					content: [{
+						type: "text",
+						text: `**Spelling Suggestions for "${term}"**:\n\n${suggestions}`
+					}]
+				};
+			}
+
+			// If no structured suggestions found, check for any text content
+			const cleanText = rawText.replace(/<[^>]*>/g, '').trim();
+			if (cleanText && cleanText !== term) {
+				return {
+					content: [{
+						type: "text",
+						text: `**Spelling Suggestions for "${term}"**:\n\n${cleanText}`
+					}]
+				};
+			}
+
+			return {
+				content: [{
+					type: "text",
+					text: `**No Spelling Corrections Needed**\n\nThe term "${term}" appears to be correctly spelled.`
+				}]
+			};
+		} catch (error) {
+			return {
+				content: [{
+					type: "text",
+					text: `**Spelling Check Error**\n\nService temporarily unavailable: ${error instanceof Error ? error.message : String(error)}\n\n**Original term**: ${term}\n\n💡 **Tip**: Try searching for "${term}" directly.`
+				}]
+			};
+		}
 	}
 
 	// Helper methods for staging integration

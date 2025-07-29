@@ -2,6 +2,20 @@
 
 import { ParsingDiagnostics } from './types.js';
 
+// Utility function to strip XML tags and decode HTML entities
+function stripXmlTags(text: string): string {
+    if (!text) return text;
+    return text
+        .replace(/<[^>]*>/g, '') // Remove XML/HTML tags
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&nbsp;/g, ' ')
+        .trim();
+}
+
 // Enhanced interface for our parsers that returns typed entities with diagnostics.
 export interface IContentParser {
     parse(content: string): { 
@@ -52,9 +66,9 @@ export class PubMedXMLParser implements IContentParser {
                 
                 const authorData = {
                     uid: `${articleUID}_auth_${index}`,
-                    lastname: lastNameMatch ? lastNameMatch[1].trim() : null,
-                    forename: foreNameMatch ? foreNameMatch[1].trim() : null,
-                    affiliation: affiliations.length > 0 ? affiliations.join('; ') : null
+                    lastname: lastNameMatch ? stripXmlTags(lastNameMatch[1]) : null,
+                    forename: foreNameMatch ? stripXmlTags(foreNameMatch[1]) : null,
+                    affiliation: affiliations.length > 0 ? affiliations.map(a => stripXmlTags(a)).join('; ') : null
                 };
                 allEntities.push({ type: 'author', data: authorData });
                 return authorData;
@@ -86,10 +100,10 @@ export class PubMedXMLParser implements IContentParser {
                 data: {
                     uid: articleUID,
                     pmid: articleUID,
-                    title: titleMatch ? titleMatch[1].trim() : 'No Title',
-                    journal: journalMatch ? journalMatch[1].trim() : null,
+                    title: titleMatch ? stripXmlTags(titleMatch[1]) : 'No Title',
+                    journal: journalMatch ? stripXmlTags(journalMatch[1]) : null,
                     year: yearMatch ? parseInt(yearMatch[1], 10) : null,
-                    abstract: abstractMatch ? abstractMatch[1].trim() : null,
+                    abstract: abstractMatch ? stripXmlTags(abstractMatch[1]) : null,
                     authors: authors,
                     meshTerms: meshTerms,
                 }
@@ -149,7 +163,7 @@ export class PubMedXMLParser implements IContentParser {
             
             return {
                 uid: `${articleUID}_mesh_${index}`,
-                descriptorname: descriptorMatch ? descriptorMatch[1].trim() : null
+                descriptorname: descriptorMatch ? stripXmlTags(descriptorMatch[1]) : null
             };
         }).filter(term => term.descriptorname);
     }
@@ -160,7 +174,7 @@ export class PubMedXMLParser implements IContentParser {
         
         return qualifiers.map((match, index) => ({
             uid: `${articleUID}_mesh_qual_${index}`,
-            descriptorname: match[1].trim()
+            descriptorname: stripXmlTags(match[1])
         }));
     }
 
@@ -170,7 +184,7 @@ export class PubMedXMLParser implements IContentParser {
         
         return keywords.map((match, index) => ({
             uid: `${articleUID}_mesh_kw_${index}`,
-            descriptorname: match[1].trim()
+            descriptorname: stripXmlTags(match[1])
         }));
     }
 
@@ -227,10 +241,10 @@ export class EInfoXMLParser implements IContentParser {
                 type: 'database_info',
                 data: {
                     uid: `db_${dbNameMatch[1]}`,
-                    name: dbNameMatch[1],
-                    description: dbDescMatch ? dbDescMatch[1] : null,
+                    name: stripXmlTags(dbNameMatch[1]),
+                    description: dbDescMatch ? stripXmlTags(dbDescMatch[1]) : null,
                     record_count: countMatch ? parseInt(countMatch[1], 10) : null,
-                    last_update: lastUpdateMatch ? lastUpdateMatch[1] : null
+                    last_update: lastUpdateMatch ? stripXmlTags(lastUpdateMatch[1]) : null
                 }
             });
         }
@@ -248,8 +262,8 @@ export class EInfoXMLParser implements IContentParser {
                     type: 'searchable_field',
                     data: {
                         uid: `field_${nameMatch[1]}_${index}`,
-                        name: nameMatch[1],
-                        full_name: fullNameMatch ? fullNameMatch[1] : null,
+                        name: stripXmlTags(nameMatch[1]),
+                        full_name: fullNameMatch ? stripXmlTags(fullNameMatch[1]) : null,
                         is_date: isDateMatch ? isDateMatch[1] === 'Y' : false,
                         is_numerical: isNumericalMatch ? isNumericalMatch[1] === 'Y' : false
                     }
@@ -269,9 +283,9 @@ export class EInfoXMLParser implements IContentParser {
                     type: 'link_info',
                     data: {
                         uid: `link_${nameMatch[1]}_${index}`,
-                        name: nameMatch[1],
-                        menu_name: menuMatch ? menuMatch[1] : null,
-                        target_db: dbToMatch ? dbToMatch[1] : null
+                        name: stripXmlTags(nameMatch[1]),
+                        menu_name: menuMatch ? stripXmlTags(menuMatch[1]) : null,
+                        target_db: dbToMatch ? stripXmlTags(dbToMatch[1]) : null
                     }
                 });
             }
@@ -311,17 +325,17 @@ export class ESummaryXMLParser implements IContentParser {
             const pubDateMatch = docSumXml.match(/<Item Name="PubDate"[^>]*>([^<]*)<\/Item>/);
             const doiMatch = docSumXml.match(/<Item Name="DOI"[^>]*>([^<]*)<\/Item>/);
 
-            summary.title = titleMatch ? titleMatch[1] : null;
-            summary.journal = journalMatch ? journalMatch[1] : null;
-            summary.pub_date = pubDateMatch ? pubDateMatch[1] : null;
-            summary.doi = doiMatch ? doiMatch[1] : null;
+            summary.title = titleMatch ? stripXmlTags(titleMatch[1]) : null;
+            summary.journal = journalMatch ? stripXmlTags(journalMatch[1]) : null;
+            summary.pub_date = pubDateMatch ? stripXmlTags(pubDateMatch[1]) : null;
+            summary.doi = doiMatch ? stripXmlTags(doiMatch[1]) : null;
 
             // Extract authors from AuthorList
             if (authorsMatch) {
                 const authorItems = authorsMatch[1].match(/<Item Name="Author"[^>]*>([^<]*)<\/Item>/g) || [];
                 summary.authors = authorItems.map(item => {
                     const authorMatch = item.match(/>([^<]*)</);
-                    return authorMatch ? authorMatch[1] : '';
+                    return authorMatch ? stripXmlTags(authorMatch[1]) : '';
                 }).filter(author => author);
             }
 
@@ -373,6 +387,144 @@ export class BlastSubmitParser implements IContentParser {
     }
 }
 
+// Enhanced parser for Gene database XML format
+export class GeneXMLParser implements IContentParser {
+    parse(content: string): { entities: { type: string; data: any }[]; diagnostics: ParsingDiagnostics } {
+        const allEntities: { type: string; data: any }[] = [];
+        const diagnostics: ParsingDiagnostics = {
+            method_used: 'gene_xml_extraction',
+            terms_found: 0,
+            failed_extractions: [],
+            warnings: [],
+            indexing_status: 'complete',
+            mesh_availability: 'none'
+        };
+
+        const geneMatches = content.match(/<Entrezgene>[\s\S]+?<\/Entrezgene>/g) || [];
+        
+        for (const geneXml of geneMatches) {
+            const geneIdMatch = geneXml.match(/<Gene-track_geneid>(\d+)<\/Gene-track_geneid>/);
+            const symbolMatch = geneXml.match(/<Gene-ref_locus>([^<]+)<\/Gene-ref_locus>/);
+            const descMatch = geneXml.match(/<Gene-ref_desc>([^<]+)<\/Gene-ref_desc>/);
+            const chromosomeMatch = geneXml.match(/<Maps_display-str>([^<]+)<\/Maps_display-str>/);
+            const organismMatch = geneXml.match(/<BioSource_org>[\s\S]*?<Org-ref_taxname>([^<]+)<\/Org-ref_taxname>/);
+            
+            const geneUID = geneIdMatch ? geneIdMatch[1] : `gene_${Math.random()}`;
+            
+            allEntities.push({
+                type: 'gene',
+                data: {
+                    uid: geneUID,
+                    gene_id: geneUID,
+                    symbol: symbolMatch ? stripXmlTags(symbolMatch[1]) : null,
+                    name: symbolMatch ? stripXmlTags(symbolMatch[1]) : null,
+                    description: descMatch ? stripXmlTags(descMatch[1]) : null,
+                    chromosome: chromosomeMatch ? stripXmlTags(chromosomeMatch[1]) : null,
+                    organism: organismMatch ? stripXmlTags(organismMatch[1]) : null,
+                    gene_type: 'protein-coding' // Default, could be enhanced
+                }
+            });
+        }
+
+        diagnostics.terms_found = allEntities.length;
+        return { entities: allEntities, diagnostics };
+    }
+}
+
+// Enhanced parser for Protein database XML format
+export class ProteinXMLParser implements IContentParser {
+    parse(content: string): { entities: { type: string; data: any }[]; diagnostics: ParsingDiagnostics } {
+        const allEntities: { type: string; data: any }[] = [];
+        const diagnostics: ParsingDiagnostics = {
+            method_used: 'protein_xml_extraction',
+            terms_found: 0,
+            failed_extractions: [],
+            warnings: [],
+            indexing_status: 'complete',
+            mesh_availability: 'none'
+        };
+
+        const seqMatches = content.match(/<Bioseq>[\s\S]+?<\/Bioseq>/g) || [];
+        
+        for (const seqXml of seqMatches) {
+            const idMatch = seqXml.match(/<Textseq-id_accession>([^<]+)<\/Textseq-id_accession>/);
+            const titleMatch = seqXml.match(/<Seqdesc_title>([^<]+)<\/Seqdesc_title>/);
+            const lengthMatch = seqXml.match(/<Bioseq_length>(\d+)<\/Bioseq_length>/);
+            const organismMatch = seqXml.match(/<BioSource_org>[\s\S]*?<Org-ref_taxname>([^<]+)<\/Org-ref_taxname>/);
+            
+            const proteinUID = idMatch ? idMatch[1] : `prot_${Math.random()}`;
+            
+            allEntities.push({
+                type: 'protein',
+                data: {
+                    uid: proteinUID,
+                    accession: proteinUID,
+                    title: titleMatch ? stripXmlTags(titleMatch[1]) : null,
+                    length: lengthMatch ? parseInt(lengthMatch[1], 10) : null,
+                    organism: organismMatch ? stripXmlTags(organismMatch[1]) : null
+                }
+            });
+        }
+
+        diagnostics.terms_found = allEntities.length;
+        return { entities: allEntities, diagnostics };
+    }
+}
+
+// Enhanced parser for Nucleotide database XML format
+export class NucleotideXMLParser implements IContentParser {
+    parse(content: string): { entities: { type: string; data: any }[]; diagnostics: ParsingDiagnostics } {
+        const allEntities: { type: string; data: any }[] = [];
+        const diagnostics: ParsingDiagnostics = {
+            method_used: 'nucleotide_xml_extraction',
+            terms_found: 0,
+            failed_extractions: [],
+            warnings: [],
+            indexing_status: 'complete',
+            mesh_availability: 'none'
+        };
+
+        const seqMatches = content.match(/<Bioseq>[\s\S]+?<\/Bioseq>/g) || [];
+        
+        for (const seqXml of seqMatches) {
+            const idMatch = seqXml.match(/<Textseq-id_accession>([^<]+)<\/Textseq-id_accession>/);
+            const titleMatch = seqXml.match(/<Seqdesc_title>([^<]+)<\/Seqdesc_title>/);
+            const lengthMatch = seqXml.match(/<Bioseq_length>(\d+)<\/Bioseq_length>/);
+            const organismMatch = seqXml.match(/<BioSource_org>[\s\S]*?<Org-ref_taxname>([^<]+)<\/Org-ref_taxname>/);
+            const moltypeMatch = seqXml.match(/<MolInfo_biomol>(\d+)<\/MolInfo_biomol>/);
+            
+            const seqUID = idMatch ? idMatch[1] : `nucl_${Math.random()}`;
+            
+            // Map biomol codes to readable names
+            const biomolMap: { [key: string]: string } = {
+                '1': 'genomic DNA',
+                '2': 'pre-mRNA',
+                '3': 'mRNA',
+                '4': 'rRNA',
+                '5': 'tRNA',
+                '6': 'peptide',
+                '7': 'other-genetic',
+                '8': 'genomic-mRNA'
+            };
+            
+            allEntities.push({
+                type: 'nucleotide',
+                data: {
+                    uid: seqUID,
+                    accession: seqUID,
+                    title: titleMatch ? stripXmlTags(titleMatch[1]) : null,
+                    length: lengthMatch ? parseInt(lengthMatch[1], 10) : null,
+                    organism: organismMatch ? stripXmlTags(organismMatch[1]) : null,
+                    molecule_type: moltypeMatch ? biomolMap[moltypeMatch[1]] || 'unknown' : 'unknown'
+                }
+            });
+        }
+
+        diagnostics.terms_found = allEntities.length;
+        return { entities: allEntities, diagnostics };
+    }
+}
+
 // Enhanced fallback parser for unstructured data.
 export class FallbackParser implements IContentParser {
     parse(content: any): { entities: { type: string; data: any }[]; diagnostics: ParsingDiagnostics } {
@@ -396,6 +548,15 @@ export class FallbackParser implements IContentParser {
 export function getParserFor(db: string, rettype?: string): IContentParser {
     if (db === 'pubmed' && rettype === 'xml') {
         return new PubMedXMLParser();
+    }
+    if (db === 'gene' && rettype === 'xml') {
+        return new GeneXMLParser();
+    }
+    if (db === 'protein' && rettype === 'xml') {
+        return new ProteinXMLParser();
+    }
+    if ((db === 'nucleotide' || db === 'nuccore') && rettype === 'xml') {
+        return new NucleotideXMLParser();
     }
     return new FallbackParser();
 }

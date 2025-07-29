@@ -15,9 +15,9 @@ export class ResponseFormatter {
 	private static readonly COMPACT_MAX_TOKENS = 200;
 
 	/**
-	 * Format ESummary responses efficiently based on intended use
+	 * Format ESummary responses efficiently based on intended use and database
 	 */
-	static formatESummary(data: any, options: FormattingOptions = {}): string {
+	static formatESummary(data: any, options: FormattingOptions = {}, database?: string): string {
 		const { intendedUse = 'analysis', maxTokens = this.DEFAULT_MAX_TOKENS, compactMode = false } = options;
 		
 		if (typeof data === 'string') return data;
@@ -30,15 +30,28 @@ export class ResponseFormatter {
 
 		if (results.length === 0) return 'No results found';
 
-		switch (intendedUse) {
-			case 'search':
-				return this.formatSearchSummary(results, compactMode);
-			case 'citation':
-				return this.formatCitationSummary(results, compactMode);
-			case 'analysis':
-				return this.formatAnalysisSummary(results, maxTokens);
+		// Route to database-specific formatters
+		switch (database) {
+			case 'gene':
+				return this.formatGeneSummary(results, intendedUse, compactMode);
+			case 'protein':
+				return this.formatProteinSummary(results, intendedUse, compactMode);
+			case 'nucleotide':
+			case 'nuccore':
+				return this.formatNucleotideSummary(results, intendedUse, compactMode);
+			case 'pubmed':
 			default:
-				return this.formatCompactSummary(results, maxTokens);
+				// Default to PubMed formatting
+				switch (intendedUse) {
+					case 'search':
+						return this.formatSearchSummary(results, compactMode);
+					case 'citation':
+						return this.formatCitationSummary(results, compactMode);
+					case 'analysis':
+						return this.formatAnalysisSummary(results, maxTokens);
+					default:
+						return this.formatCompactSummary(results, maxTokens);
+				}
 		}
 	}
 
@@ -241,6 +254,77 @@ export class ResponseFormatter {
 	private static truncateText(text: string, maxLength: number): string {
 		if (!text || text.length <= maxLength) return text;
 		return text.substring(0, maxLength - 3) + '...';
+	}
+
+	/**
+	 * Format gene database summaries
+	 */
+	private static formatGeneSummary(results: any[], intendedUse: string, compact: boolean): string {
+		return results.map((item, idx) => {
+			const geneId = item.uid;
+			const name = item.name || 'Unknown gene';
+			const description = item.description || 'No description available';
+			const organism = item.organism || 'Unknown organism';
+			const chromosome = item.chromosome || 'Unknown';
+			const maplocation = item.maplocation || 'Unknown location';
+			const geneType = item.genetype || 'Unknown type';
+			
+			if (compact) {
+				return `${idx + 1}. **${name}** (ID: ${geneId}) - ${this.truncateText(description, 80)} [${organism}]`;
+			}
+			
+			return `**Gene ID ${geneId}** - ${name}
+📋 ${description}
+🧬 **Organism**: ${organism}
+🧭 **Location**: Chromosome ${chromosome}, ${maplocation}
+🔬 **Type**: ${geneType}`;
+		}).join(compact ? '\n' : '\n\n');
+	}
+
+	/**
+	 * Format protein database summaries
+	 */
+	private static formatProteinSummary(results: any[], intendedUse: string, compact: boolean): string {
+		return results.map((item, idx) => {
+			const proteinId = item.uid;
+			const title = item.title || 'Unknown protein';
+			const organism = item.organism || 'Unknown organism';
+			const length = item.slen || 'Unknown';
+			const accession = item.caption || item.accessionversion || proteinId;
+			
+			if (compact) {
+				return `${idx + 1}. **${accession}** - ${this.truncateText(title, 60)} [${organism}]`;
+			}
+			
+			return `**Protein ID ${proteinId}** - ${accession}
+📋 ${title}
+🧬 **Organism**: ${organism}
+📏 **Length**: ${length} amino acids`;
+		}).join(compact ? '\n' : '\n\n');
+	}
+
+	/**
+	 * Format nucleotide database summaries
+	 */
+	private static formatNucleotideSummary(results: any[], intendedUse: string, compact: boolean): string {
+		return results.map((item, idx) => {
+			const seqId = item.uid;
+			const title = item.title || 'Unknown sequence';
+			const organism = item.organism || 'Unknown organism';
+			const length = item.slen || 'Unknown';
+			const accession = item.caption || item.accessionversion || seqId;
+			const moltype = item.moltype || 'Unknown';
+			
+			if (compact) {
+				return `${idx + 1}. **${accession}** - ${this.truncateText(title, 60)} [${organism}]`;
+			}
+			
+			return `**Sequence ID ${seqId}** - ${accession}
+📋 ${title}
+🧬 **Organism**: ${organism}
+🧪 **Molecule Type**: ${moltype}
+📏 **Length**: ${length} nucleotides`;
+		}).join(compact ? '\n' : '\n\n');
 	}
 
 	/**
