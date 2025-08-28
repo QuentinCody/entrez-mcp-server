@@ -36,6 +36,15 @@
 		},
 		{
 			"tag": "v8-restore-entrezmcp"
+		},
+		{
+			"tag": "v10-add-uservault",
+			"new_sqlite_classes": [
+				"UserVault"
+			]
+		},
+		{
+			"tag": "v11-remove-uservault"
 		}
 	],
 	"observability": {
