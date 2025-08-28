@@ -20,6 +20,10 @@
 			{
 				"name": "JSON_TO_SQL_DO",
 				"class_name": "JsonToSqlDO"
+			},
+			{
+				"name": "USER_VAULT",
+				"class_name": "UserVault"
 			}
 		]
 	},
@@ -36,12 +40,6 @@
 		},
 		{
 			"tag": "v8-restore-entrezmcp"
-		},
-		{
-			"tag": "v10-add-uservault",
-			"new_sqlite_classes": [
-				"UserVault"
-			]
 		},
 		{
 			"tag": "v11-remove-uservault",

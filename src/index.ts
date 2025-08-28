@@ -787,3 +787,10 @@ For usage instructions, connect with an MCP client.`,
 };
 
 export { JsonToSqlDO };
+
+// Temporary UserVault class to satisfy migration
+export class UserVault {
+	constructor(state: any, env: any) {
+		// Minimal implementation
+	}
+}
