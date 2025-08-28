@@ -20,10 +20,6 @@
 			{
 				"name": "JSON_TO_SQL_DO",
 				"class_name": "JsonToSqlDO"
-			},
-			{
-				"name": "USER_VAULT",
-				"class_name": "UserVault"
 			}
 		]
 	},
@@ -43,6 +39,12 @@
 		},
 		{
 			"tag": "v11-remove-uservault",
+			"deleted_classes": [
+				"UserVault"
+			]
+		},
+		{
+			"tag": "v12-remove-uservault-binding",
 			"deleted_classes": [
 				"UserVault"
 			]
