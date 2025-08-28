@@ -44,7 +44,10 @@
 			]
 		},
 		{
-			"tag": "v11-remove-uservault"
+			"tag": "v11-remove-uservault",
+			"deleted_classes": [
+				"UserVault"
+			]
 		}
 	],
 	"observability": {
