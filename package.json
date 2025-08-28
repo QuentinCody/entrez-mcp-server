@@ -9,6 +9,8 @@
 		"deploy": "npx wrangler deploy",
 		"test": "node test-rate-limits.js",
 		"test-api-key": "node test-rate-limits.js",
+		"test-mcp": "node test-mcp-transports.js",
+		"test-all": "npm run test-api-key && npm run test-mcp",
 		"setup-help": "echo 'See API_KEY_SETUP.md for API key configuration instructions'",
 		"check-setup": "node -e \"console.log('NCBI_API_KEY:', process.env.NCBI_API_KEY ? 'SET ✅' : 'NOT SET ❌'); console.log('Run: npm run test-api-key')\"",
 		"quick-start": "node quick-start.js",

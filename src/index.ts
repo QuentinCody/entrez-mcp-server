@@ -627,24 +627,162 @@ export class EntrezMCP extends McpAgent implements ToolContext {
 export class MyMCP extends EntrezMCP {}
 
 export default {
-	fetch(request: Request, env: Env, ctx: ExecutionContext) {
+	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		// Set the environment for the EntrezMCP class to access
 		EntrezMCP.currentEnv = env;
 		
 		const url = new URL(request.url);
+		const startTime = Date.now();
 
-		if (url.pathname === "/sse" || url.pathname === "/sse/message") {
-			return EntrezMCP.serveSSE("/sse").fetch(request, env, ctx);
+		// Handle CORS preflight requests
+		if (request.method === "OPTIONS") {
+			return new Response(null, {
+				headers: {
+					"Access-Control-Allow-Origin": "*",
+					"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+					"Access-Control-Allow-Headers": "Content-Type, Accept, MCP-Protocol-Version, Mcp-Session-Id",
+					"Access-Control-Max-Age": "86400"
+				}
+			});
 		}
 
-		if (url.pathname === "/mcp") {
-			return EntrezMCP.serve("/mcp").fetch(request, env, ctx);
-		}
+		try {
+			// NEW: Streamable HTTP transport (MCP 2025-06-18 specification)
+			if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
+				const protocolVersion = request.headers.get("MCP-Protocol-Version");
+				const sessionId = request.headers.get("Mcp-Session-Id");
+				
+				console.log("MCP Streamable HTTP request:", {
+					method: request.method,
+					pathname: url.pathname,
+					protocolVersion,
+					hasSessionId: !!sessionId
+				});
 
-		return new Response("Complete NCBI APIs MCP Server - Including E-utilities, BLAST, PubChem PUG, PMC APIs, and Advanced Data Staging", { 
-			status: 200,
-			headers: { "Content-Type": "text/plain" }
-		});
+				// Use EntrezMCP.serve() for Streamable HTTP transport
+				const response = await EntrezMCP.serve("/mcp").fetch(request, env, ctx);
+				
+				// Add MCP protocol headers if provided in request or if this is a successful response
+				if (response instanceof Response) {
+					const headers = new Headers(response.headers);
+					
+					// Add CORS headers for browser compatibility
+					headers.set("Access-Control-Allow-Origin", "*");
+					headers.set("Access-Control-Expose-Headers", "MCP-Protocol-Version, mcp-session-id");
+					
+					// Echo back protocol version if provided
+					if (protocolVersion) {
+						headers.set("MCP-Protocol-Version", protocolVersion);
+					} else {
+						// Set current protocol version if not specified
+						headers.set("MCP-Protocol-Version", "2024-11-05");
+					}
+					
+					// Generate session ID for new connections (if not provided and this is initialization)
+					if (!sessionId && request.method === "POST") {
+						try {
+							const requestBody = await request.clone().text();
+							if (requestBody.includes('"method":"initialize"')) {
+								const newSessionId = crypto.randomUUID();
+								headers.set("mcp-session-id", newSessionId);
+								console.log("Generated new session ID for initialization:", newSessionId);
+							}
+						} catch (e) {
+							// Ignore errors when trying to read request body
+						}
+					}
+					
+					return new Response(response.body, {
+						status: response.status,
+						statusText: response.statusText,
+						headers
+					});
+				}
+				
+				return response;
+			}
+
+			// LEGACY: SSE transport (maintain backward compatibility)
+			if (url.pathname === "/sse" || url.pathname.startsWith("/sse/")) {
+				const protocolVersion = request.headers.get("MCP-Protocol-Version");
+				
+				console.log("MCP SSE request:", {
+					method: request.method,
+					pathname: url.pathname,
+					protocolVersion
+				});
+
+				const response = await EntrezMCP.serveSSE("/sse").fetch(request, env, ctx);
+				
+				// Add protocol version header for SSE compatibility
+				if (protocolVersion && response instanceof Response) {
+					const headers = new Headers(response.headers);
+					headers.set("MCP-Protocol-Version", protocolVersion);
+					headers.set("Access-Control-Allow-Origin", "*");
+					headers.set("Access-Control-Expose-Headers", "MCP-Protocol-Version");
+					
+					return new Response(response.body, {
+						status: response.status,
+						statusText: response.statusText,
+						headers
+					});
+				}
+				
+				return response;
+			}
+
+			// Default response with transport information
+			const transport = request.headers.get("Accept")?.includes("text/event-stream") ? "sse" : "http";
+			return new Response(`NCBI Entrez MCP Server
+================================
+
+A comprehensive Model Context Protocol server for NCBI APIs including:
+- E-utilities (PubMed, Gene, Protein, Nucleotide databases)
+- BLAST sequence analysis
+- PubChem compound/substance search
+- PMC full-text articles
+- Advanced data staging with SQL querying
+
+Available Endpoints:
+- /mcp (Streamable HTTP transport - recommended)
+- /sse (SSE transport - legacy support)
+
+Protocol Version: 2024-11-05
+Detected Transport: ${transport}
+
+For usage instructions, connect with an MCP client.`, 
+				{ 
+					status: 200,
+					headers: { 
+						"Content-Type": "text/plain",
+						"Access-Control-Allow-Origin": "*"
+					}
+				}
+			);
+			
+		} catch (error) {
+			// Enhanced error logging with request context
+			console.error("MCP Server Error:", {
+				method: request.method,
+				url: url.pathname,
+				error: error instanceof Error ? error.message : String(error),
+				duration: Date.now() - startTime,
+				userAgent: request.headers.get("User-Agent")
+			});
+
+			return new Response(JSON.stringify({
+				error: "Internal server error",
+				message: error instanceof Error ? error.message : String(error),
+				timestamp: new Date().toISOString(),
+				endpoint: url.pathname
+			}), {
+				status: 500,
+				headers: { 
+					"Content-Type": "application/json",
+					"Access-Control-Allow-Origin": "*"
+				}
+			});
+		}
 	},
 };
 
