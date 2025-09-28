@@ -4,8 +4,8 @@ import { BaseTool } from "./base.js";
 export class ExternalAPIsTool extends BaseTool {
 	register(): void {
 		this.context.server.tool(
-			"external_apis",
-			"Unified interface for external NCBI services: PubChem chemical data and PMC full-text articles. Combines specialized tools into one optimized interface.",
+			"entrez.external",
+			"Access PubChem chemistry and PMC article utilities from one entry point.",
 			{
 				service: z.enum([
 					"pubchem", "pmc"
@@ -66,6 +66,100 @@ export class ExternalAPIsTool extends BaseTool {
 				}
 			}
 		);
+	}
+
+	override getCapabilities() {
+		return {
+			tool: "entrez.external",
+			summary: "Access PubChem chemistry datasets and PMC full-text utilities via one surface.",
+			operations: [
+				{
+					name: "pubchem.compound",
+					summary: "Fetch compound records by CID, name, or structure identifiers.",
+					required: [
+						{ name: "identifier", type: "string", description: "Compound identifier value" },
+						{ name: "identifier_type", type: "string", description: "Identifier type such as cid, name, inchikey" },
+					],
+					optional: [
+						{ name: "output_format", type: "string", description: "Response format (json, xml, sdf)", defaultValue: "json" },
+					],
+				},
+				{
+					name: "pubchem.substance",
+					summary: "Retrieve substance records by SID or source identifiers.",
+					required: [
+						{ name: "identifier", type: "string", description: "Substance identifier" },
+						{ name: "identifier_type", type: "string", description: "Type such as sid or sourceid" },
+					],
+					optional: [
+						{ name: "output_format", type: "string", description: "Response format", defaultValue: "json" },
+					],
+				},
+				{
+					name: "pubchem.bioassay",
+					summary: "Retrieve bioassay records for activity analysis.",
+					required: [
+						{ name: "identifier", type: "string", description: "Assay identifier" },
+						{ name: "identifier_type", type: "string", description: "Assay identifier type such as aid" },
+					],
+					optional: [
+						{ name: "output_format", type: "string", description: "Response format", defaultValue: "json" },
+					],
+				},
+				{
+					name: "pubchem.structure_search",
+					summary: "Run similarity, identity, or substructure searches from structure inputs.",
+					required: [
+						{ name: "structure", type: "string", description: "Structure specification" },
+						{ name: "structure_type", type: "string", description: "Format such as smiles, inchi, mol" },
+						{ name: "search_type", type: "string", description: "Search mode identity/substructure/similarity" },
+					],
+					optional: [
+						{ name: "threshold", type: "number", description: "Similarity threshold percentage", defaultValue: 90 },
+						{ name: "max_records", type: "number", description: "Result limit", defaultValue: 1000 },
+					],
+					remarks: ["Use max_records <= 500 for chatty sessions"],
+				},
+				{
+					name: "pmc.id_convert",
+					summary: "Convert identifiers between PMC, PMID, and DOI.",
+					required: [
+						{ name: "ids", type: "string", description: "Comma separated identifiers" },
+					],
+					optional: [
+						{ name: "versions", type: "string", description: "Include version metadata", defaultValue: "no" },
+					],
+				},
+				{
+					name: "pmc.oa_service",
+					summary: "Request Open Access full-text packages from PMC.",
+					required: [
+						{ name: "id", type: "string", description: "PMC ID or DOI" },
+					],
+					optional: [
+						{ name: "output_format", type: "string", description: "Package format (xml, pdf, tgz)", defaultValue: "xml" },
+					],
+					remarks: ["Large packages may be streamed via staging"],
+				},
+				{
+					name: "pmc.citation_export",
+					summary: "Export citation metadata in RIS, NBIB, Medline, or BibTeX.",
+					required: [
+						{ name: "ids", type: "string", description: "Comma separated identifiers" },
+					],
+					optional: [
+						{ name: "citation_format", type: "string", description: "Citation file format", defaultValue: "ris" },
+					],
+					remarks: ["Use when generating bibliographies"],
+				},
+			],
+			contexts: ["chemistry", "full_text", "citation"],
+			requiresApiKey: false,
+			tokenProfile: { typical: 220, upper: 9000 },
+			metadata: {
+				services: ["pubchem", "pmc"],
+			},
+		};
 	}
 
 	private validateServiceOperation(service: string, operation: string) {

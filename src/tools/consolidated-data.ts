@@ -5,8 +5,8 @@ import { SmartQueryGenerator, QueryContext } from "../lib/smart-query-generator.
 export class DataManagerTool extends BaseTool {
 	register(): void {
 		this.context.server.tool(
-			"data_manager",
-			"Unified data operations for staging, querying, and schema management. Combines fetch-and-stage, SQL querying, and schema inspection in one optimized interface.",
+			"entrez.data",
+			"Stage Entrez payloads and explore them with SQL or smart summaries.",
 			{
 				operation: z.enum([
 					"fetch_and_stage", "query", "schema", "list_datasets"
@@ -27,9 +27,10 @@ export class DataManagerTool extends BaseTool {
 				
 				// Smart query options
 				intended_use: z.enum(["search", "analysis", "citation", "full"]).optional().describe("Context for intelligent query generation"),
-				max_tokens: z.number().optional().describe("Maximum tokens for query results"),
-				smart_summary: z.boolean().optional().describe("Generate intelligent summary instead of raw SQL results")
-			},
+					max_tokens: z.number().optional().describe("Maximum tokens for query results"),
+					smart_summary: z.boolean().optional().describe("Generate intelligent summary instead of raw SQL results"),
+					response_style: z.enum(["text", "json"]).optional().default("text").describe("Preferred output style for query results")
+				},
 			async (params) => {
 				try {
 					const { operation } = params;
@@ -79,6 +80,67 @@ export class DataManagerTool extends BaseTool {
 		);
 	}
 
+	override getCapabilities() {
+		return {
+			tool: "entrez.data",
+			summary: "Manage staged datasets, perform SQL queries, and inspect schemas.",
+			operations: [
+				{
+					name: "fetch_and_stage",
+					summary: "Fetch records via EFetch and persist into Durable Object staging.",
+					required: [
+						{ name: "database", type: "string", description: "Source Entrez database" },
+						{ name: "ids", type: "string", description: "Comma-separated UID list" },
+					],
+					optional: [
+						{ name: "rettype", type: "string", description: "Entrez rettype (xml, fasta, gb)", defaultValue: "xml" },
+						{ name: "force_direct", type: "boolean", description: "Bypass staging and return formatted text" },
+						{ name: "include_raw", type: "boolean", description: "Embed raw payload preview in response" },
+					],
+					remarks: ["Returns data_access_id for follow-up queries"],
+				},
+				{
+					name: "query",
+					summary: "Execute SQL against staged dataset or ask for smart summaries.",
+					required: [
+						{ name: "data_access_id", type: "string", description: "Identifier returned from staging" },
+					],
+					optional: [
+						{ name: "sql", type: "string", description: "SQL query to execute" },
+						{ name: "smart_summary", type: "boolean", description: "Let the tool craft summaries when SQL omitted" },
+						{ name: "intended_use", type: "string", description: "Formatter hint (analysis, citation, search, full)" },
+						{ name: "max_tokens", type: "number", description: "Cap on formatted token usage" },
+						{ name: "response_style", type: "string", description: "Return mode (text or json)" },
+					],
+					remarks: ["Set smart_summary=true with no SQL to auto-generate insights"],
+				},
+				{
+					name: "schema",
+					summary: "Inspect inferred schema for a staged dataset.",
+					required: [
+						{ name: "data_access_id", type: "string", description: "Identifier returned from staging" },
+					],
+					optional: [],
+					remarks: ["Includes column descriptions, sample counts, and primary keys"],
+				},
+				{
+					name: "list_datasets",
+					summary: "Enumerate active staged datasets within the Durable Object.",
+					required: [],
+					optional: [],
+					remarks: ["Use to clean up or re-discover identifiers"],
+				},
+			],
+			contexts: ["data_staging", "analysis", "sql_generation"],
+			stageable: true,
+			requiresApiKey: false,
+			tokenProfile: { typical: 280, upper: 6000 },
+			metadata: {
+				requiresDurableObject: true,
+			},
+		};
+	}
+
 	private async handleFetchAndStage(params: any) {
 		const { database, ids, rettype, force_direct, include_raw } = params;
 		
@@ -121,7 +183,7 @@ export class DataManagerTool extends BaseTool {
 	}
 
 	private async handleQuery(params: any) {
-		const { data_access_id, sql, intended_use, max_tokens, smart_summary } = params;
+		const { data_access_id, sql, intended_use, max_tokens, smart_summary, response_style } = params;
 		
 		try {
 			// Get Durable Object instance
@@ -150,34 +212,50 @@ export class DataManagerTool extends BaseTool {
 				throw new Error(`SQL query failed: ${error}`);
 			}
 
-			const result = await queryResponse.json();
+				const result = await queryResponse.json();
+				const rawJson = JSON.stringify(result, null, 2);
 			
 			// Format result based on context
-			if (smart_summary && intended_use) {
-				const formatted = SmartQueryGenerator['formatQueryResult'](result, {
-					operation: 'query',
-					database: 'staged_data',
-					intendedUse: intended_use,
-					maxTokens: max_tokens
-				});
-				
-				const tokenEstimate = SmartQueryGenerator['estimateTokens'](formatted);
-				
+				if (smart_summary && intended_use) {
+					const formatted = SmartQueryGenerator['formatQueryResult'](result, {
+						operation: 'query',
+						database: 'staged_data',
+						intendedUse: intended_use,
+						maxTokens: max_tokens
+					});
+
+					const tokenEstimate = SmartQueryGenerator['estimateTokens'](formatted);
+
+					const summaryContent = {
+						type: "text" as const,
+						text: `📊 **SQL Query Results** (${tokenEstimate} tokens)\n\n${formatted}`
+					};
+					if (response_style === 'json') {
+						return {
+							content: [summaryContent, {
+								type: "text" as const,
+								text: `\nRaw rows:\n\n\`\`\`json\n${rawJson}\n\`\`\``
+							}]
+						};
+					}
+					return { content: [summaryContent] };
+				}
+
+				// Default JSON response for backward compatibility
+				if (response_style === 'json') {
+					return {
+						content: [{
+							type: "text" as const,
+							text: `\`\`\`json\n${rawJson}\n\`\`\``
+						}]
+					};
+				}
 				return {
 					content: [{
 						type: "text" as const,
-						text: `📊 **SQL Query Results** (${tokenEstimate} tokens)\n\n${formatted}`
+						text: `📊 **SQL Query Results**\n\n\`\`\`json\n${rawJson}\n\`\`\``
 					}]
 				};
-			}
-			
-			// Default JSON response for backward compatibility
-			return {
-				content: [{
-					type: "text" as const,
-					text: `📊 **SQL Query Results**\n\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\``
-				}]
-			};
 		} catch (error) {
 			throw new Error(`Database query failed: ${error instanceof Error ? error.message : String(error)}`);
 		}
@@ -272,8 +350,8 @@ export class DataManagerTool extends BaseTool {
 			}
 			responseText += `\n`;
 			responseText += `## 🚀 Next Steps:\n`;
-			responseText += `• Use \`data_manager\` with operation='query' and this data_access_id to run SQL queries\n`;
-			responseText += `• Use \`data_manager\` with operation='schema' to see table structures\n\n`;
+			responseText += `• Use \`entrez.data\` with operation='query' and this data_access_id to run SQL queries\n`;
+			responseText += `• Use \`entrez.data\` with operation='schema' to see table structures\n\n`;
 			responseText += `💡 **Pro tip**: Start with basic SELECT queries to explore your ${idCount} staged records!`;
 
 			if (includeRaw) {

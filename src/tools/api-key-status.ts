@@ -4,8 +4,8 @@ import { BaseTool } from "./base.js";
 export class ApiKeyStatusTool extends BaseTool {
 	register(): void {
 		this.context.server.tool(
-			"api_key_status",
-			"Check your NCBI API key configuration and current rate limits. Without an API key, you're limited to 3 requests/second. With a valid API key, you get 10 requests/second (or higher by request). Essential for optimizing E-utilities performance.",
+			"system.api-key-status",
+			"Report NCBI API key presence and summarise the effective rate limits.",
 			{},
 			async () => {
 				const status = this.getApiKeyStatus();
@@ -41,6 +41,16 @@ node test-rate-limits.js`
 				};
 			}
 		);
+	}
+
+	override getCapabilities() {
+		return {
+			ool: "system.api-key-status",
+			summary: "Report on configured NCBI API key, rate limits, and setup guidance.",
+			contexts: ["diagnostics", "environment_setup"],
+			requiresApiKey: false,
+			tokenProfile: { typical: 80 },
+		};
 	}
 
 	private getApiKeyStatus(): { hasKey: boolean; message: string; rateLimit: string } {

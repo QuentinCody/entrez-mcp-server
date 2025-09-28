@@ -5,8 +5,8 @@ import { ResponseFormatter } from "../lib/response-formatter.js";
 export class EntrezQueryTool extends BaseTool {
 	register(): void {
 		this.context.server.tool(
-			"entrez_query",
-			"Unified E-utilities interface for NCBI Entrez databases. Combines search, summary, info, fetch, link, post, global query, and spelling operations in one optimized tool.",
+			"entrez.query",
+			"Compact gateway to Entrez E-utilities with smart defaults and staging hooks.",
 			{
 				operation: z.enum([
 					"search", "summary", "info", "fetch", "link", "post", "global_query", "spell"
@@ -44,7 +44,8 @@ export class EntrezQueryTool extends BaseTool {
 				
 				// Response formatting control
 				compact_mode: z.boolean().optional().describe("Enable compact, token-efficient response formatting"),
-				max_tokens: z.number().optional().describe("Maximum tokens for response formatting (default: 500)")
+				max_tokens: z.number().optional().describe("Maximum tokens for response formatting (default: 500)"),
+				detail_level: z.enum(["auto", "brief", "full"]).optional().describe("Guide formatter verbosity (brief, auto, full)")
 			},
 			async (params) => {
 				try {
@@ -99,6 +100,110 @@ export class EntrezQueryTool extends BaseTool {
 				}
 			}
 		);
+	}
+
+	override getCapabilities() {
+		const sharedDatabaseParam = {
+			name: "database",
+			type: "string",
+			description: "Entrez database identifier (e.g., pubmed, protein, nuccore)",
+			defaultValue: "pubmed",
+		};
+
+		const sharedIdParam = {
+			name: "ids",
+			type: "string",
+			description: "Comma-separated Entrez UID list",
+		};
+
+		const operations = [
+			{
+				name: "search",
+				summary: "ESearch query with token-conscious defaults and validation",
+				required: [sharedDatabaseParam, { name: "term", type: "string", description: "Query expression (field tags supported)" }],
+				optional: [
+					{ name: "retmax", type: "number", description: "Maximum results returned", defaultValue: 20 },
+					{ name: "retstart", type: "number", description: "Pagination offset" },
+					{ name: "sort", type: "string", description: "Sort order such as relevance or mostrecent" },
+					{ name: "field", type: "string", description: "Field restriction for the query" },
+					{ name: "intended_use", type: "string", description: "Hint for formatter (search, analysis, citation, staging)" },
+				],
+				remarks: ["Returns formatted preview plus optimization tips", "Use retmax <= 100 unless staging"],
+			},
+			{
+				name: "summary",
+				summary: "ESummary for metadata-heavy inspection with optional staging",
+				required: [sharedDatabaseParam, sharedIdParam],
+				optional: [
+					{ name: "retmax", type: "number", description: "Trim number of summaries" },
+					{ name: "compact_mode", type: "boolean", description: "Force minimal token output" },
+					{ name: "detail_level", type: "string", description: "Preferred verbosity (brief, auto, full)" },
+					{ name: "max_tokens", type: "number", description: "Cap formatter token budget", defaultValue: 500 },
+				],
+				remarks: ["Automatically stages large payloads", "See entrez.data fetch_and_stage for raw records"],
+			},
+			{
+				name: "info",
+				summary: "EInfo database metadata and available fields",
+				required: [sharedDatabaseParam],
+				optional: [],
+			},
+			{
+				name: "fetch",
+				summary: "EFetch detail retrieval with format optimizers",
+				required: [sharedDatabaseParam, sharedIdParam],
+				optional: [
+					{ name: "rettype", type: "string", description: "Return type such as abstract, fasta, gb" },
+					{ name: "intended_use", type: "string", description: "Hint for summarizer (analysis, citation, staging)" },
+					{ name: "detail_level", type: "string", description: "Preferred verbosity (brief, auto, full)" },
+				],
+				remarks: ["Use compact_mode when you only need highlights"],
+			},
+			{
+				name: "link",
+				summary: "ELink cross-database relationships",
+				required: [sharedDatabaseParam, sharedIdParam],
+				optional: [
+					{ name: "dbfrom", type: "string", description: "Override source database" },
+					{ name: "linkname", type: "string", description: "Specific linkage name" },
+				],
+			},
+			{
+				name: "post",
+				summary: "EPost to Entrez history for batch workflows",
+				required: [sharedDatabaseParam, sharedIdParam],
+				optional: [
+					{ name: "usehistory", type: "string", description: "Enable history server", defaultValue: "y" },
+				],
+				remarks: ["Returns WebEnv + QueryKey for subsequent calls"],
+			},
+			{
+				name: "global_query",
+				summary: "EGQuery cross-database term coverage",
+				required: [{ name: "term", type: "string", description: "Query expression" }],
+				optional: [],
+			},
+			{
+				name: "spell",
+				summary: "ESpell spelling suggestions",
+				required: [{ name: "term", type: "string", description: "Query needing correction" }],
+				optional: [],
+			},
+		];
+
+		return {
+			tool: "entrez.query",
+			summary: "Unified gateway to Entrez E-utilities with token-aware formatting and staging.",
+			operations,
+			contexts: ["literature_search", "biomedical_analysis", "citation_management"],
+			stageable: true,
+			requiresApiKey: false,
+			tokenProfile: { typical: 350, upper: 12000 },
+			metadata: {
+				supportsRetmode: ["xml", "json"],
+				defaultIntendedUse: "analysis",
+			},
+		};
 	}
 
 	private async handleSearch(params: any) {
@@ -163,7 +268,7 @@ export class EntrezQueryTool extends BaseTool {
 	}
 
 	private async handleSummary(params: any) {
-		const { database, ids, retmax, retmode, compact_mode, max_tokens, intended_use } = params;
+		const { database, ids, retmax, retmode, intended_use } = params;
 		
 		const summaryParams = new URLSearchParams({
 			db: database,
@@ -188,10 +293,11 @@ export class EntrezQueryTool extends BaseTool {
 		}
 
 		// Use new response formatter for more efficient output
+		const detailPrefs = this.resolveDetailPreferences(params);
 		const formatOptions = {
-			maxTokens: max_tokens,
+			maxTokens: detailPrefs.maxTokens,
 			intendedUse: intended_use,
-			compactMode: compact_mode
+			compactMode: detailPrefs.compactMode
 		};
 		
 		const formattedData = ResponseFormatter.formatESummary(data, formatOptions, database);
@@ -200,7 +306,7 @@ export class EntrezQueryTool extends BaseTool {
 		return {
 			content: [{
 				type: "text" as const,
-				text: `**E-utilities Summary** (${estimatedTokens} tokens):\n\n${formattedData}`
+				text: `**E-utilities Summary** (${estimatedTokens} tokens, detail: ${detailPrefs.detailLevel})\n\n${formattedData}`
 			}]
 		};
 	}
@@ -238,7 +344,7 @@ export class EntrezQueryTool extends BaseTool {
 	}
 
 	private async handleFetch(params: any) {
-		const { database, ids, rettype, retmode, compact_mode, max_tokens, intended_use } = params;
+		const { database, ids, rettype, retmode, intended_use } = params;
 		
 		const fetchParams = new URLSearchParams({
 			db: database,
@@ -262,10 +368,11 @@ export class EntrezQueryTool extends BaseTool {
 		}
 
 		// Use enhanced formatter for fetch results
+		const detailPrefs = this.resolveDetailPreferences(params);
 		const formatOptions = {
-			maxTokens: max_tokens,
+			maxTokens: detailPrefs.maxTokens,
 			intendedUse: intended_use,
-			compactMode: compact_mode
+			compactMode: detailPrefs.compactMode
 		};
 		
 		const formattedData = ResponseFormatter.formatEFetch(data, rettype, formatOptions);
@@ -274,7 +381,7 @@ export class EntrezQueryTool extends BaseTool {
 		return {
 			content: [{
 				type: "text" as const,
-				text: `**E-utilities Fetch Results** (${estimatedTokens} tokens):\n\n${formattedData}`
+				text: `**E-utilities Fetch Results** (${estimatedTokens} tokens, detail: ${detailPrefs.detailLevel})\n\n${formattedData}`
 			}]
 		};
 	}
@@ -434,6 +541,22 @@ export class EntrezQueryTool extends BaseTool {
 	}
 
 	// Helper methods for staging integration
+	private resolveDetailPreferences(params: any) {
+		const detailLevel = params.detail_level ?? "auto";
+		const defaultMap: Record<string, { compactMode: boolean; maxTokens: number }> = {
+			auto: { compactMode: params.compact_mode ?? false, maxTokens: params.max_tokens ?? 500 },
+			brief: { compactMode: true, maxTokens: params.max_tokens ?? 200 },
+			full: { compactMode: false, maxTokens: params.max_tokens ?? 900 },
+		};
+
+		const baseline = defaultMap[detailLevel] || defaultMap.auto;
+		return {
+			detailLevel,
+			compactMode: params.compact_mode ?? baseline.compactMode,
+			maxTokens: params.max_tokens ?? baseline.maxTokens,
+		};
+	}
+
 	private async stageAndReturnSummary(data: any, ids: string) {
 		// Integrate with existing staging system
 		return {

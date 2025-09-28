@@ -1,31 +1,41 @@
-import { ToolContext } from "./base.js";
+import { ToolContext, ToolCapabilityDescriptor } from "./base.js";
 import { ApiKeyStatusTool } from "./api-key-status.js";
 import { EntrezQueryTool } from "./consolidated-entrez.js";
 import { DataManagerTool } from "./consolidated-data.js";
 import { ExternalAPIsTool } from "./consolidated-external.js";
+import { CapabilitiesTool } from "./capabilities.js";
+
+type ToolInstance = {
+	instance: {
+		register: () => void;
+		getCapabilities: () => ToolCapabilityDescriptor;
+	};
+};
 
 export class ToolRegistry {
-	private tools: any[] = [];
+	private tools: ToolInstance[] = [];
 
 	constructor(context: ToolContext) {
-		// Register consolidated tools (19 → 4 tools)
-		this.tools = [
-			// System utilities
+		const coreTools = [
 			new ApiKeyStatusTool(context),
-			
-			// Unified E-utilities interface (combines 8 tools)
 			new EntrezQueryTool(context),
-			
-			// Unified data management (combines 3 tools)
 			new DataManagerTool(context),
-			
-			// Unified external APIs (combines 9 tools)
 			new ExternalAPIsTool(context),
 		];
+
+		this.tools = coreTools.map(instance => ({ instance }));
+
+		// Introspection tool needs access to registry view, so inject callback
+		const capabilitiesTool = new CapabilitiesTool(context, () => this.getCapabilities());
+		this.tools.push({ instance: capabilitiesTool });
 	}
 
 	registerAll(): void {
-		this.tools.forEach(tool => tool.register());
+		this.tools.forEach(({ instance }) => instance.register());
+	}
+
+	getCapabilities(): ToolCapabilityDescriptor[] {
+		return this.tools.map(({ instance }) => instance.getCapabilities());
 	}
 }
 
@@ -36,4 +46,5 @@ export {
 	EntrezQueryTool,
 	DataManagerTool,
 	ExternalAPIsTool,
+	CapabilitiesTool,
 };

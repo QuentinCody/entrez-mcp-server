@@ -1,5 +1,34 @@
-import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+
+export interface ParameterDescriptor {
+	name: string;
+	type: string;
+	description: string;
+	defaultValue?: unknown;
+	values?: string[];
+}
+
+export interface ToolOperationDescriptor {
+	name: string;
+	summary: string;
+	required: ParameterDescriptor[];
+	optional: ParameterDescriptor[];
+	remarks?: string[];
+}
+
+export interface ToolCapabilityDescriptor {
+	tool: string;
+	summary: string;
+	operations?: ToolOperationDescriptor[];
+	contexts?: string[];
+	requiresApiKey?: boolean;
+	stageable?: boolean;
+	tokenProfile?: {
+		typical: number;
+		upper?: number;
+	};
+	metadata?: Record<string, unknown>;
+}
 
 export interface ToolContext {
 	server: McpServer;
@@ -27,6 +56,14 @@ export abstract class BaseTool {
 	}
 
 	abstract register(): void;
+
+	// Tools can override to describe capabilities for introspection
+	getCapabilities(): ToolCapabilityDescriptor {
+		return {
+			tool: "unknown",
+			summary: "No capability metadata provided.",
+		};
+	}
 
 	protected buildUrl(endpoint: string, params: URLSearchParams): string {
 		return this.context.buildUrl(endpoint, params);

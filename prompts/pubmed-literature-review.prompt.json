@@ -1,0 +1,18 @@
+{
+  "name": "pubmed-literature-review",
+  "description": "Workflow template for a PubMed-focused evidence scan using the Entrez MCP server.",
+  "instructions": [
+    "Call `entrez.capabilities` with { \"tool\": \"entrez.query\", \"format\": \"detailed\" } if you need a refresher on parameter hints before starting.",
+    "Use `entrez.query` with `operation: \"search\"` and a Boolean-rich `term`. Start with `retmax` <= 25 and `intended_use: \"search\"`.",
+    "Summarise your primary PMIDs using `operation: \"summary\"` and `detail_level: \"brief\"` to stay token efficient.",
+    "Pull abstracts for shortlisted PMIDs via `operation: \"fetch\"` with `rettype: \"abstract\"` when deeper reading is required.",
+    "Persist key records through `entrez.data` `fetch_and_stage` when you anticipate SQL analysis or repeated use.",
+    "Finish by synthesising findings and suggesting next investigative steps."
+  ],
+  "retry_guidance": [
+    "Prefer uppercase Boolean operators (AND/OR/NOT) inside the `term`.",
+    "Restrict by publication year using `[Date]` filters before widening the scope.",
+    "If responses get long, add `compact_mode: true` or set `max_tokens` to 300."
+  ],
+  "primary_tools": ["entrez.query", "entrez.data", "entrez.capabilities"]
+}

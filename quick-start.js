@@ -132,11 +132,11 @@ class QuickStartGuide {
         console.log("  npm run setup-help - Show setup instructions");
         
         console.log("\n🔍 Available NCBI Tools:");
-        console.log("  - E-utilities: esearch, efetch, esummary, elink, epost, einfo");
-        console.log("  - BLAST: blast_submit, blast_get");
-        console.log("  - PubChem: pubchem_compound, pubchem_substance, pubchem_structure_search");
-        console.log("  - PMC: pmc_id_converter, pmc_oa_service, pmc_citation_exporter");
-        console.log("  - Status: api_key_status (check your API key status)");
+        console.log("  - entrez.query        - Unified E-utilities surface (search, summary, fetch, link)");
+        console.log("  - entrez.data         - Stage datasets and run SQL or smart summaries");
+        console.log("  - entrez.external     - PubChem + PMC helpers in one interface");
+        console.log("  - entrez.capabilities - Inspect tool signatures and token profiles");
+        console.log("  - system.api-key-status - Check API key configuration");
         
         console.log("\n🎉 You're ready to go! Happy researching! 🧬");
     }

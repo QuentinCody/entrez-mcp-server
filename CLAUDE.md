@@ -27,6 +27,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a **Cloudflare Workers-based MCP (Model Context Protocol) server** that provides comprehensive access to NCBI APIs including E-utilities, PubChem, PMC, and BLAST services.
 
+## Agent Prompts & Capability Discovery
+
+- **Tool Introspection**: Call `entrez.capabilities` to inspect the available tools, operations, token footprints, and authentication hints. Pass `{ "tool": "entrez.query", "format": "detailed" }` to drill into a single surface, or `format: "json"` for structured output.
+- **Reusable MCP Prompts**: `prompts/` contains workflow blueprints that keep the tool list compact while guiding agents through multi-step tasks.
+  - `pubmed-literature-review.prompt.json`: focused on rapid PubMed evidence scans using `entrez.query`, staged summaries, and optional SQL follow-ups.
+  - `staged-sql-analysis.prompt.json`: outlines the durable-object staging + SQL exploration loop using `entrez.data`.
+- **Guided Onboarding**: When onboarding a new agent, first run `entrez.capabilities` (summary mode) followed by an appropriate prompt file to seed its scratchpad with best practices without inflating tool surface area.
+
 ### Core Components
 
 **Main Entry Point**: `src/index.ts`
@@ -45,10 +53,10 @@ This is a **Cloudflare Workers-based MCP (Model Context Protocol) server** that 
 
 **Tool Architecture**: `src/tools/`
 - **Consolidated approach**: 4 main tools replace 19+ individual tools
-- `EntrezQueryTool`: Unified E-utilities (ESearch, EFetch, ESummary, EInfo, ELink, EPost, ESpell, EGquery)
-- `ExternalAPIsTool`: PubChem, PMC, BLAST services
-- `DataManagerTool`: Advanced data staging and SQL query capabilities
-- `ApiKeyStatusTool`: Environment and API key validation
+- `EntrezQueryTool` (`entrez.query`): Unified E-utilities (ESearch, EFetch, ESummary, EInfo, ELink, EPost, ESpell, EGquery)
+- `ExternalAPIsTool` (`entrez.external`): PubChem, PMC, BLAST services
+- `DataManagerTool` (`entrez.data`): Advanced data staging and SQL query capabilities
+- `ApiKeyStatusTool` (`system.api-key-status`): Environment and API key validation
 
 **Data Processing**: `src/lib/`
 - `parsers.ts`: Smart parsers for PubMed, Gene, Protein, Nucleotide databases
