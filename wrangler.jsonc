@@ -36,6 +36,12 @@
 		},
 		{
 			"tag": "v8-restore-entrezmcp"
+		},
+		{
+			"tag": "v12-remove-uservault-binding"
+		},
+		{
+			"tag": "v13-enhanced-validation-update"
 		}
 	],
 	"observability": {
