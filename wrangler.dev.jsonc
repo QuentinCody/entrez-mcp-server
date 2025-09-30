@@ -1,10 +1,6 @@
-/**
- * For more details on how to configure Wrangler, refer to:
- * https://developers.cloudflare.com/workers/wrangler/configuration/
- */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "entrez-mcp-server",
+	"name": "entrez-mcp-server-dev",
 	"main": "src/index.ts",
 	"build": {
 		"watch_dir": ["src", "wrangler.jsonc", "package.json", "tsconfig.json"]
@@ -26,18 +22,6 @@
 			}
 		]
 	},
-	"migrations": [
-		{
-			"tag": "v3-fresh-sql-migration",
-			"new_sqlite_classes": ["EntrezMCP", "JsonToSqlDO"]
-		},
-		{
-			"tag": "v7-fix-rename-only"
-		},
-		{
-			"tag": "v8-restore-entrezmcp"
-		}
-	],
 	"observability": {
 		"enabled": true
 	},

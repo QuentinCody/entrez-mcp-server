@@ -14,8 +14,11 @@ export class ChunkingEngine {
 		return content.length > this.CHUNK_SIZE_THRESHOLD;
 	}
 
-	public async storeChunkedContent(content: string, sql: any): Promise<ChunkMetadata> {
-		const contentId = 'chunk_' + crypto.randomUUID();
+	public async storeChunkedContent(
+		content: string,
+		sql: any,
+	): Promise<ChunkMetadata> {
+		const contentId = "chunk_" + crypto.randomUUID();
 		await this.ensureChunksTable(sql);
 
 		const chunks = [];
@@ -26,24 +29,39 @@ export class ChunkingEngine {
 		for (let i = 0; i < chunks.length; i++) {
 			sql.exec(
 				`INSERT INTO content_chunks (content_id, chunk_index, chunk_data) VALUES (?, ?, ?)`,
-				contentId, i, chunks[i]
+				contentId,
+				i,
+				chunks[i],
 			);
 		}
 
-		const metadata = { contentId, totalChunks: chunks.length, originalSize: content.length };
+		const metadata = {
+			contentId,
+			totalChunks: chunks.length,
+			originalSize: content.length,
+		};
 		sql.exec(
 			`INSERT INTO chunk_metadata (content_id, total_chunks, original_size) VALUES (?, ?, ?)`,
-			metadata.contentId, metadata.totalChunks, metadata.originalSize
+			metadata.contentId,
+			metadata.totalChunks,
+			metadata.originalSize,
 		);
 		return metadata;
 	}
 
-	public async retrieveChunkedContent(contentId: string, sql: any): Promise<string | null> {
-		const result = sql.exec(
-			`SELECT chunk_data FROM content_chunks WHERE content_id = ? ORDER BY chunk_index ASC`,
-			contentId
-		).toArray();
-		return result.length > 0 ? result.map((row: any) => row.chunk_data).join('') : null;
+	public async retrieveChunkedContent(
+		contentId: string,
+		sql: any,
+	): Promise<string | null> {
+		const result = sql
+			.exec(
+				`SELECT chunk_data FROM content_chunks WHERE content_id = ? ORDER BY chunk_index ASC`,
+				contentId,
+			)
+			.toArray();
+		return result.length > 0
+			? result.map((row: any) => row.chunk_data).join("")
+			: null;
 	}
 
 	public createContentReference(metadata: ChunkMetadata): string {
@@ -51,7 +69,7 @@ export class ChunkingEngine {
 	}
 
 	public isContentReference(value: any): boolean {
-		return typeof value === 'string' && value.startsWith('__CHUNKED__:');
+		return typeof value === "string" && value.startsWith("__CHUNKED__:");
 	}
 
 	public extractContentId(reference: string): string {
@@ -74,6 +92,8 @@ export class ChunkingEngine {
 				UNIQUE(content_id, chunk_index)
 			)
 		`);
-		sql.exec(`CREATE TABLE IF NOT EXISTS chunk_metadata (content_id TEXT PRIMARY KEY, total_chunks INTEGER, original_size INTEGER)`);
+		sql.exec(
+			`CREATE TABLE IF NOT EXISTS chunk_metadata (content_id TEXT PRIMARY KEY, total_chunks INTEGER, original_size INTEGER)`,
+		);
 	}
-} 
+}

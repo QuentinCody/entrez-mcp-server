@@ -1,4 +1,4 @@
-import { ToolContext, ToolCapabilityDescriptor } from "./base.js";
+import type { ToolContext, ToolCapabilityDescriptor } from "./base.js";
 import { ApiKeyStatusTool } from "./api-key-status.js";
 import { EntrezQueryTool } from "./consolidated-entrez.js";
 import { DataManagerTool } from "./consolidated-data.js";
@@ -23,10 +23,12 @@ export class ToolRegistry {
 			new ExternalAPIsTool(context),
 		];
 
-		this.tools = coreTools.map(instance => ({ instance }));
+		this.tools = coreTools.map((instance) => ({ instance }));
 
 		// Introspection tool needs access to registry view, so inject callback
-		const capabilitiesTool = new CapabilitiesTool(context, () => this.getCapabilities());
+		const capabilitiesTool = new CapabilitiesTool(context, () =>
+			this.getCapabilities(),
+		);
 		this.tools.push({ instance: capabilitiesTool });
 	}
 

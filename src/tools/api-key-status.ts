@@ -1,16 +1,15 @@
-import { z } from "zod";
 import { BaseTool } from "./base.js";
 
 export class ApiKeyStatusTool extends BaseTool {
 	register(): void {
 		this.context.server.tool(
-			"system.api-key-status",
+			"system-api-key-status",
 			"Report NCBI API key presence and summarise the effective rate limits.",
 			{},
 			async () => {
 				const status = this.getApiKeyStatus();
-				
-				const helpMessage = status.hasKey 
+
+				const helpMessage = status.hasKey
 					? `Your NCBI API key is properly configured and active! You can make up to ${status.rateLimit}.`
 					: `No API key configured. You're limited to ${status.rateLimit}. 
 
@@ -22,11 +21,7 @@ To get 3x better performance:
 
 See API_KEY_SETUP.md for detailed instructions.`;
 
-				return {
-					content: [
-						{
-							type: "text",
-							text: `NCBI API Key Status Report
+				const report = `NCBI API Key Status Report
 ================================
 
 ${status.message}
@@ -35,37 +30,40 @@ Rate Limit: ${status.rateLimit}
 ${helpMessage}
 
 Need help? Run the rate limit tester:
-node test-rate-limits.js`
-						}
-					]
-				};
-			}
+node test-rate-limits.js`;
+				return this.textResult(report);
+			},
 		);
 	}
 
 	override getCapabilities() {
 		return {
-			ool: "system.api-key-status",
-			summary: "Report on configured NCBI API key, rate limits, and setup guidance.",
+			tool: "system-api-key-status",
+			summary:
+				"Report on configured NCBI API key, rate limits, and setup guidance.",
 			contexts: ["diagnostics", "environment_setup"],
 			requiresApiKey: false,
 			tokenProfile: { typical: 80 },
 		};
 	}
 
-	private getApiKeyStatus(): { hasKey: boolean; message: string; rateLimit: string } {
+	private getApiKeyStatus(): {
+		hasKey: boolean;
+		message: string;
+		rateLimit: string;
+	} {
 		const apiKey = this.getApiKey();
 		if (apiKey) {
 			return {
 				hasKey: true,
 				message: `✅ NCBI API Key configured (${apiKey.substring(0, 8)}...)`,
-				rateLimit: "10 requests/second"
+				rateLimit: "10 requests/second",
 			};
 		} else {
 			return {
 				hasKey: false,
 				message: "⚠️  No NCBI API Key found - using default rate limits",
-				rateLimit: "3 requests/second"
+				rateLimit: "3 requests/second",
 			};
 		}
 	}

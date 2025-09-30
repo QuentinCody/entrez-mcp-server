@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 export interface ParameterDescriptor {
 	name: string;
@@ -38,15 +38,44 @@ export interface ToolContext {
 	getApiKey(): string | undefined;
 	getEnvironment(): Env | undefined;
 	isValidDatabase(db: string): boolean;
-	parseResponse(response: Response, toolName: string, requestedRetmode?: string): Promise<string | any>;
+	// biome-ignore lint/suspicious/noExplicitAny: shared context needs to accommodate heterogeneous tool responses
+	parseResponse(
+		response: Response,
+		toolName: string,
+		requestedRetmode?: string,
+	): Promise<string | any>;
+	// biome-ignore lint/suspicious/noExplicitAny: shared context needs to accommodate heterogeneous tool responses
 	formatResponseData(data: any): string;
 	buildUrl(endpoint: string, params: URLSearchParams): string;
-	shouldBypassStaging(processedData: any[], diagnostics: any, payloadSize: number): { bypass: boolean; reason: string };
-	getOptimalRetmode(tool: string, database: string, intendedUse?: string): string;
-	shouldStageResponse(data: string, toolName: string): { shouldStage: boolean; reason: string; estimatedTokens: number };
-	validateQuery(query: string, database: string): { valid: boolean; message?: string; suggestion?: string };
+	// biome-ignore lint/suspicious/noExplicitAny: shared context needs to accommodate heterogeneous tool responses
+	shouldBypassStaging(
+		processedData: any[],
+		diagnostics: any,
+		payloadSize: number,
+	): { bypass: boolean; reason: string };
+	getOptimalRetmode(
+		tool: string,
+		database: string,
+		intendedUse?: string,
+	): string;
+	shouldStageResponse(
+		data: string,
+		toolName: string,
+	): { shouldStage: boolean; reason: string; estimatedTokens: number };
+	validateQuery(
+		query: string,
+		database: string,
+	): { valid: boolean; message?: string; suggestion?: string };
 	suggestQueryImprovements(query: string, database: string): string[];
 }
+
+type TextToolContent = { type: "text"; text: string; [key: string]: unknown };
+type ToolResult = {
+	content: TextToolContent[];
+	_meta?: Record<string, unknown>;
+	structuredContent?: Record<string, unknown>;
+	[key: string]: unknown;
+};
 
 export abstract class BaseTool {
 	protected context: ToolContext;
@@ -65,11 +94,28 @@ export abstract class BaseTool {
 		};
 	}
 
+	protected result(content: TextToolContent[]): ToolResult {
+		return { content };
+	}
+
+	protected textContent(text: string): TextToolContent {
+		return { type: "text", text };
+	}
+
+	// biome-ignore lint/suspicious/noExplicitAny: helper returns MCP-compatible payload without rigid typing
+	protected textResult(...messages: string[]): any {
+		return this.result(messages.map((message) => this.textContent(message)));
+	}
+
 	protected buildUrl(endpoint: string, params: URLSearchParams): string {
 		return this.context.buildUrl(endpoint, params);
 	}
 
-	protected async parseResponse(response: Response, toolName: string, requestedRetmode?: string): Promise<string | any> {
+	protected async parseResponse(
+		response: Response,
+		toolName: string,
+		requestedRetmode?: string,
+	): Promise<string | any> {
 		return this.context.parseResponse(response, toolName, requestedRetmode);
 	}
 
