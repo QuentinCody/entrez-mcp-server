@@ -14,6 +14,12 @@ export class EntrezMCP extends McpAgent implements ToolContext {
 		version: "1.0.0",
 		description:
 			"A comprehensive MCP server for E-utilities, BLAST, PubChem, and PMC, with advanced data staging capabilities.",
+	}, {
+		capabilities: {
+			tools: {
+				listChanged: true
+			}
+		}
 	});
 
 	baseUrl = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/";
