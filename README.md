@@ -78,3 +78,7 @@ Update with this configuration:
 ```
 
 Restart Claude and you should see the tools become available. 
+
+## Cloudflare Code Mode Tips
+
+When running this MCP server from Cloudflare's Code Mode experiments, the tool functions are exposed on the `codemode` proxy with hyphenated identifiers (for example `tool_Z1YjsltQ_entrez-query`). JavaScript treats `codemode.tool_Z1YjsltQ_entrez-query` as subtraction, which triggers `ReferenceError` messages such as “query is not defined.” Always look up the tools with bracket notation—`codemode["tool_Z1YjsltQ_entrez-query"](...)`—or use the helper shown in [`docs/codemode.md`](docs/codemode.md) for a complete end-to-end workflow example.

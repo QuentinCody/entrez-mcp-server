@@ -7,6 +7,8 @@ import {
 } from "./base.js";
 
 type DescribeFn = () => ToolCapabilityDescriptor[];
+const CODEMODE_TIP =
+	"\n\n⚠️ **Code Mode Tip**: Hyphenated tool IDs must be called with bracket notation—e.g., `codemode[\"tool_<id>_entrez-query\"]({...})`—to avoid `ReferenceError`.";
 
 export class CapabilitiesTool extends BaseTool {
 	private describe: DescribeFn;
@@ -92,7 +94,7 @@ export class CapabilitiesTool extends BaseTool {
 			})
 			.join("\n");
 
-		return this.textResult(`**Registered Tools**\n${lines}`);
+		return this.textResult(`**Registered Tools**\n${lines}${CODEMODE_TIP}`);
 	}
 
 	private respondDetailed(
@@ -126,7 +128,9 @@ export class CapabilitiesTool extends BaseTool {
 			})
 			.join("\n\n---\n\n");
 
-		return this.textResult(`**Tool Capability Guide**\n\n${sections}`);
+		return this.textResult(
+			`**Tool Capability Guide**\n\n${sections}${CODEMODE_TIP}`,
+		);
 	}
 
 	private respondWithJson(
@@ -139,7 +143,9 @@ export class CapabilitiesTool extends BaseTool {
 			return rest;
 		});
 		const json = JSON.stringify({ tools: sanitized }, null, 2);
-		return this.textResult(`\`\`\`json\n${json}\n\`\`\``);
+		return this.textResult(
+			`\`\`\`json\n${json}\n\`\`\`${CODEMODE_TIP}`,
+		);
 	}
 
 	private formatOperation(operation: ToolOperationDescriptor): string {
