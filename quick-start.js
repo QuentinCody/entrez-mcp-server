@@ -138,18 +138,20 @@ class QuickStartGuide {
 
 		console.log("\n🔍 Available NCBI Tools:");
 		console.log(
-			"  - entrez-query        - Unified E-utilities surface (search, summary, fetch, link)",
+			"  - entrez_query (alias entrez-query)        - Unified E-utilities surface (search, summary, fetch, link)",
 		);
 		console.log(
-			"  - entrez-data         - Stage datasets and run SQL or smart summaries",
+			"  - entrez_data (alias entrez-data)          - Stage datasets and run SQL or smart summaries",
 		);
 		console.log(
-			"  - entrez-external     - PubChem + PMC helpers in one interface",
+			"  - entrez_external (alias entrez-external)  - PubChem + PMC helpers in one interface",
 		);
 		console.log(
-			"  - entrez-capabilities - Inspect tool signatures and token profiles",
+			"  - entrez_capabilities (alias entrez-capabilities) - Inspect tool signatures and token profiles",
 		);
-		console.log("  - system-api-key-status - Check API key configuration");
+		console.log(
+			"  - system_api_key_status (alias system-api-key-status) - Check API key configuration",
+		);
 
 		console.log("\n🎉 You're ready to go! Happy researching! 🧬");
 	}

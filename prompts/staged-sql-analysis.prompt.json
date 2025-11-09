@@ -2,8 +2,8 @@
 	"name": "staged-sql-analysis",
 	"description": "Guide for staging Entrez records and exploring them with SQL through the durable object pipeline.",
 	"instructions": [
-		"Call `entrez-capabilities` with { \"tool\": \"entrez-data\", \"format\": \"detailed\" } to review staging operations and required parameters.",
-		"Stage source data via `entrez-data` with `operation: \"fetch_and_stage\"`. Provide `database`, `ids`, and optionally `rettype`. Capture the returned `data_access_id`.",
+		"Call `entrez_capabilities` (alias `entrez-capabilities`) with { \"tool\": \"entrez_data\", \"format\": \"detailed\" } to review staging operations and required parameters.",
+		"Stage source data via `entrez_data` with `operation: \"fetch_and_stage\"`. Provide `database`, `ids`, and optionally `rettype`. Capture the returned `data_access_id`.",
 		"If you need iterative queries, list datasets using `operation: \"list_datasets\"` to confirm availability and retention policy.",
 		"Run SQL using `operation: \"query\"` with either a user-supplied `sql` statement or `smart_summary: true` plus `intended_use` hints when you want auto-generated insights.",
 		"Inspect schema details using `operation: \"schema\"` before crafting complex queries."
@@ -13,5 +13,5 @@
 		"If SQL fails, check the schema output for exact column names and types.",
 		"Use `smart_summary: true` when you are unsure which SQL to run first."
 	],
-	"primary_tools": ["entrez-data", "entrez-query", "entrez-capabilities"]
+	"primary_tools": ["entrez_data", "entrez_query", "entrez_capabilities"]
 }

@@ -2,8 +2,8 @@ import { BaseTool } from "./base.js";
 
 export class ApiKeyStatusTool extends BaseTool {
 	register(): void {
-		this.context.server.tool(
-			"system-api-key-status",
+		this.registerTool(
+			"system_api_key_status",
 			"Report NCBI API key presence and summarise the effective rate limits.",
 			{},
 			async () => {
@@ -33,17 +33,21 @@ Need help? Run the rate limit tester:
 node test-rate-limits.js`;
 				return this.textResult(report);
 			},
+			{ aliases: ["system-api-key-status"] },
 		);
 	}
 
 	override getCapabilities() {
 		return {
-			tool: "system-api-key-status",
+			tool: "system_api_key_status",
 			summary:
 				"Report on configured NCBI API key, rate limits, and setup guidance.",
 			contexts: ["diagnostics", "environment_setup"],
 			requiresApiKey: false,
 			tokenProfile: { typical: 80 },
+			metadata: {
+				aliases: ["system-api-key-status"],
+			},
 		};
 	}
 

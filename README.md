@@ -52,7 +52,7 @@ This will test both authenticated and unauthenticated scenarios and verify your 
 You can connect to your MCP server from the Cloudflare AI Playground, which is a remote MCP client:
 
 1. Go to https://playground.ai.cloudflare.com/
-2. Enter your deployed MCP server URL (`remote-mcp-server-authless.<your-account>.workers.dev/sse`)
+2. Enter your deployed MCP server URL (`remote-mcp-server-authless.<your-account>.workers.dev/mcp`)
 3. You can now use your MCP tools directly from the playground!
 
 ## Connect Claude Desktop to your MCP server
@@ -70,7 +70,7 @@ Update with this configuration:
       "command": "npx",
       "args": [
         "mcp-remote",
-        "http://localhost:8787/sse"  // or remote-mcp-server-authless.your-account.workers.dev/sse
+        "http://localhost:8787/mcp"  // or remote-mcp-server-authless.your-account.workers.dev/mcp
       ]
     }
   }
@@ -81,4 +81,4 @@ Restart Claude and you should see the tools become available.
 
 ## Cloudflare Code Mode Tips
 
-When running this MCP server from Cloudflare's Code Mode experiments, the tool functions are exposed on the `codemode` proxy with hyphenated identifiers (for example `tool_Z1YjsltQ_entrez-query`). JavaScript treats `codemode.tool_Z1YjsltQ_entrez-query` as subtraction, which triggers `ReferenceError` messages such as “query is not defined.” Always look up the tools with bracket notation—`codemode["tool_Z1YjsltQ_entrez-query"](...)`—or use the helper shown in [`docs/codemode.md`](docs/codemode.md) for a complete end-to-end workflow example.
+When running this MCP server from Cloudflare's Code Mode experiments, prefer the underscore tool IDs (for example `tool_Z1YjsltQ_entrez_query`). Legacy hyphenated aliases (`…_entrez-query`) are still available for backward compatibility, but JavaScript treats `codemode.tool_Z1YjsltQ_entrez-query` as subtraction and throws `ReferenceError`. Either stick to the underscore versions or call the hyphenated aliases with bracket notation (`codemode["tool_Z1YjsltQ_entrez-query"](...)`). See [`docs/codemode.md`](docs/codemode.md) for a ready-to-run helper and workflow.

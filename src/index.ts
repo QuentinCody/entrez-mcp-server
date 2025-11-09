@@ -890,45 +890,27 @@ export default {
 				return response;
 			}
 
-			// LEGACY: SSE transport (maintain backward compatibility)
+			// Explicitly reject legacy SSE transport to keep all clients on Streamable HTTP
 			if (url.pathname === "/sse" || url.pathname.startsWith("/sse/")) {
-				const protocolVersion = request.headers.get("MCP-Protocol-Version");
-
-				console.log("MCP SSE request:", {
-					method: request.method,
-					pathname: url.pathname,
-					protocolVersion,
-				});
-
-				const response = await EntrezMCP.serveSSE("/sse").fetch(
-					request,
-					env,
-					ctx,
+				return new Response(
+					`SSE transport is no longer supported. Please connect using the Streamable HTTP endpoint at /mcp.`,
+					{
+						status: 410,
+						headers: {
+							"Content-Type": "text/plain",
+							"Access-Control-Allow-Origin": "*",
+						},
+					},
 				);
-
-				// Add protocol version header for SSE compatibility
-				if (protocolVersion && response instanceof Response) {
-					const headers = new Headers(response.headers);
-					headers.set("MCP-Protocol-Version", protocolVersion);
-					headers.set("Access-Control-Allow-Origin", "*");
-					headers.set("Access-Control-Expose-Headers", "MCP-Protocol-Version");
-
-					return new Response(response.body, {
-						status: response.status,
-						statusText: response.statusText,
-						headers,
-					});
-				}
-
-				return response;
 			}
 
 			// Default response with transport information
-			const transport = request.headers
+			const wantsSse = request.headers
 				.get("Accept")
-				?.includes("text/event-stream")
-				? "sse"
-				: "http";
+				?.includes("text/event-stream");
+			const transport = wantsSse
+				? "sse (unsupported — use /mcp instead)"
+				: "streamable-http";
 			return new Response(
 				`NCBI Entrez MCP Server
 ================================
@@ -941,8 +923,7 @@ A comprehensive Model Context Protocol server for NCBI APIs including:
 - Advanced data staging with SQL querying
 
 Available Endpoints:
-- /mcp (Streamable HTTP transport - recommended)
-- /sse (SSE transport - legacy support)
+- /mcp (Streamable HTTP transport)
 
 Protocol Version: 2024-11-05
 Detected Transport: ${transport}

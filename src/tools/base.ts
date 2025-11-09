@@ -134,4 +134,24 @@ export abstract class BaseTool {
 	protected getEnvironment(): Env | undefined {
 		return this.context.getEnvironment();
 	}
+
+	// biome-ignore lint/suspicious/noExplicitAny: MCP server accepts heterogeneous schemas/handlers
+	protected registerTool(
+		name: string,
+		description: string,
+		schema: any,
+		handler: any,
+		options?: { aliases?: string[] },
+	): void {
+		this.context.server.tool(name, description, schema, handler);
+		if (!options?.aliases) return;
+		for (const alias of options.aliases) {
+			this.context.server.tool(
+				alias,
+				`${description} (alias for ${name})`,
+				schema,
+				handler,
+			);
+		}
+	}
 }

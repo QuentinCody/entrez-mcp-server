@@ -8,7 +8,21 @@ import {
 
 type DescribeFn = () => ToolCapabilityDescriptor[];
 const CODEMODE_TIP =
-	"\n\n⚠️ **Code Mode Tip**: Hyphenated tool IDs must be called with bracket notation—e.g., `codemode[\"tool_<id>_entrez-query\"]({...})`—to avoid `ReferenceError`.";
+	"\n\n⚠️ **Code Mode Tip**: Prefer the underscore tool IDs (e.g., `tool_<id>_entrez_query`). If you must call a legacy hyphenated alias, use bracket notation like `codemode[\"tool_<id>_entrez-query\"]({...})` to avoid `ReferenceError`.";
+
+const CapabilitiesParamsShape = {
+	tool: z.string().optional().describe("Filter results to a single tool name"),
+	format: z
+		.enum(["summary", "detailed", "json"])
+		.default("summary")
+		.describe("Response style"),
+	include_metadata: z
+		.boolean()
+		.optional()
+		.describe("Include extended metadata when available"),
+};
+const CapabilitiesParamsSchema = z.object(CapabilitiesParamsShape);
+type CapabilitiesParams = z.infer<typeof CapabilitiesParamsSchema>;
 
 export class CapabilitiesTool extends BaseTool {
 	private describe: DescribeFn;
@@ -19,24 +33,11 @@ export class CapabilitiesTool extends BaseTool {
 	}
 
 	override register(): void {
-		this.context.server.tool(
-			"entrez-capabilities",
+		this.registerTool(
+			"entrez_capabilities",
 			"List the available tools, their operations, and guidance for usage.",
-			{
-				tool: z
-					.string()
-					.optional()
-					.describe("Filter results to a single tool name"),
-				format: z
-					.enum(["summary", "detailed", "json"])
-					.default("summary")
-					.describe("Response style"),
-				include_metadata: z
-					.boolean()
-					.optional()
-					.describe("Include extended metadata when available"),
-			},
-			async (params) => {
+			CapabilitiesParamsShape,
+			async (params: CapabilitiesParams) => {
 				const { tool, format, include_metadata } = params;
 				const capabilities = this.describe();
 
@@ -53,7 +54,7 @@ export class CapabilitiesTool extends BaseTool {
 						content: [
 							{
 								type: "text" as const,
-								text: `No tool metadata found for '${tool}'. Use 'entrez-capabilities' with no arguments to list all tools.`,
+								text: `No tool metadata found for '${tool}'. Use 'entrez_capabilities' (alias 'entrez-capabilities') with no arguments to list all tools.`,
 							},
 						],
 					};
@@ -68,17 +69,19 @@ export class CapabilitiesTool extends BaseTool {
 						return this.respondSummary(filtered);
 				}
 			},
+			{ aliases: ["entrez-capabilities"] },
 		);
 	}
 
 	override getCapabilities(): ToolCapabilityDescriptor {
 		return {
-			tool: "entrez-capabilities",
+			tool: "entrez_capabilities",
 			summary:
 				"Inspect available tools, operations, token profiles, and auth requirements.",
 			contexts: ["capability_discovery", "debugging", "self_reflection"],
 			metadata: {
 				encouragesSelfDiscovery: true,
+				aliases: ["entrez-capabilities"],
 			},
 		};
 	}
@@ -86,11 +89,20 @@ export class CapabilitiesTool extends BaseTool {
 	private respondSummary(descriptors: ToolCapabilityDescriptor[]) {
 		const lines = descriptors
 			.map((cap) => {
+				const aliasList = Array.isArray(
+					(cap.metadata as { aliases?: string[] } | undefined)?.aliases,
+				)
+					? ((cap.metadata as { aliases?: string[] }).aliases as string[])
+					: undefined;
 				const operations = (cap.operations ?? [])
 					.map((op) => op.name)
 					.join(", ");
 				const summary = cap.summary;
-				return `• ${cap.tool}: ${summary}${operations ? ` — operations: ${operations}` : ""}`;
+				const aliasSuffix =
+					aliasList && aliasList.length > 0
+						? ` (aliases: ${aliasList.join(", ")})`
+						: "";
+				return `• ${cap.tool}${aliasSuffix}: ${summary}${operations ? ` — operations: ${operations}` : ""}`;
 			})
 			.join("\n");
 
@@ -104,6 +116,11 @@ export class CapabilitiesTool extends BaseTool {
 		const sections = descriptors
 			.map((cap) => {
 				const header = `### ${cap.tool}\n${cap.summary}`;
+				const aliasList = Array.isArray(
+					(cap.metadata as { aliases?: string[] } | undefined)?.aliases,
+				)
+					? ((cap.metadata as { aliases?: string[] }).aliases as string[])
+					: undefined;
 				const operations = (cap.operations ?? [])
 					.map((op) => this.formatOperation(op))
 					.join("\n\n");
@@ -113,6 +130,9 @@ export class CapabilitiesTool extends BaseTool {
 					metaLines.push("- Requires API key for optimal throughput");
 				if (cap.stageable)
 					metaLines.push("- Supports durable staging for large responses");
+				if (aliasList && aliasList.length > 0) {
+					metaLines.push(`- Aliases: ${aliasList.join(", ")}`);
+				}
 				if (cap.tokenProfile) {
 					const tokenBits = cap.tokenProfile.upper
 						? `${cap.tokenProfile.typical} typical / ${cap.tokenProfile.upper} upper estimate`

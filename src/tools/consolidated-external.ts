@@ -1,100 +1,105 @@
 import { z } from "zod";
 import { BaseTool } from "./base.js";
 
+const ExternalParamsShape = {
+	service: z
+		.enum(["pubchem", "pmc"])
+		.describe("External service to access"),
+
+	operation: z
+		.enum([
+			// PubChem operations
+			"compound",
+			"substance",
+			"bioassay",
+			"structure_search",
+			// PMC operations
+			"id_convert",
+			"oa_service",
+			"citation_export",
+		])
+		.describe("Service operation to perform"),
+
+	// PubChem parameters
+	identifier: z
+		.string()
+		.optional()
+		.describe("Chemical identifier (name, CID, SID, etc.)"),
+	identifier_type: z
+		.enum([
+			"cid",
+			"name",
+			"smiles",
+			"inchi",
+			"inchikey",
+			"formula", // compound
+			"sid",
+			"sourceid",
+			"xref", // substance
+			"aid",
+			"listkey",
+			"target",
+			"activity", // bioassay
+		])
+		.optional()
+		.describe("Type of chemical identifier"),
+	search_type: z
+		.enum(["identity", "substructure", "superstructure", "similarity"])
+		.optional()
+		.describe("Structure search type"),
+	structure: z
+		.string()
+		.optional()
+		.describe("Chemical structure (SMILES, InChI, SDF, MOL)"),
+	structure_type: z
+		.enum(["smiles", "inchi", "sdf", "mol"])
+		.optional()
+		.describe("Structure input format"),
+	threshold: z
+		.number()
+		.optional()
+		.default(90)
+		.describe("Similarity threshold (0-100)"),
+
+	// PMC parameters
+	ids: z
+		.string()
+		.optional()
+		.describe("PMC/PMID/DOI identifiers (comma-separated, up to 200)"),
+	id: z.string().optional().describe("Single PMC/PMID/DOI identifier"),
+	citation_format: z
+		.enum(["ris", "nbib", "medline", "bibtex"])
+		.optional()
+		.describe("Citation export format"),
+
+	// Common parameters
+	output_format: z
+		.enum(["json", "xml", "csv", "txt", "sdf", "png"])
+		.optional()
+		.default("json")
+		.describe("Response format"),
+	max_records: z
+		.number()
+		.optional()
+		.default(1000)
+		.describe("Maximum records to return"),
+	versions: z
+		.enum(["yes", "no"])
+		.optional()
+		.default("no")
+		.describe("Include version information (PMC)"),
+};
+
+const ExternalParamsSchema = z.object(ExternalParamsShape);
+type ExternalParams = z.infer<typeof ExternalParamsSchema>;
+
 export class ExternalAPIsTool extends BaseTool {
 	register(): void {
-		this.context.server.tool(
-			"entrez-external",
+		this.registerTool(
+			"entrez_external",
 			"Access PubChem chemistry and PMC article utilities from one entry point.",
-			{
-				service: z
-					.enum(["pubchem", "pmc"])
-					.describe("External service to access"),
-
-				operation: z
-					.enum([
-						// PubChem operations
-						"compound",
-						"substance",
-						"bioassay",
-						"structure_search",
-						// PMC operations
-						"id_convert",
-						"oa_service",
-						"citation_export",
-					])
-					.describe("Service operation to perform"),
-
-				// PubChem parameters
-				identifier: z
-					.string()
-					.optional()
-					.describe("Chemical identifier (name, CID, SID, etc.)"),
-				identifier_type: z
-					.enum([
-						"cid",
-						"name",
-						"smiles",
-						"inchi",
-						"inchikey",
-						"formula", // compound
-						"sid",
-						"sourceid",
-						"xref", // substance
-						"aid",
-						"listkey",
-						"target",
-						"activity", // bioassay
-					])
-					.optional()
-					.describe("Type of chemical identifier"),
-				search_type: z
-					.enum(["identity", "substructure", "superstructure", "similarity"])
-					.optional()
-					.describe("Structure search type"),
-				structure: z
-					.string()
-					.optional()
-					.describe("Chemical structure (SMILES, InChI, SDF, MOL)"),
-				structure_type: z
-					.enum(["smiles", "inchi", "sdf", "mol"])
-					.optional()
-					.describe("Structure input format"),
-				threshold: z
-					.number()
-					.optional()
-					.default(90)
-					.describe("Similarity threshold (0-100)"),
-
-				// PMC parameters
-				ids: z
-					.string()
-					.optional()
-					.describe("PMC/PMID/DOI identifiers (comma-separated, up to 200)"),
-				id: z.string().optional().describe("Single PMC/PMID/DOI identifier"),
-				citation_format: z
-					.enum(["ris", "nbib", "medline", "bibtex"])
-					.optional()
-					.describe("Citation export format"),
-
-				// Common parameters
-				output_format: z
-					.enum(["json", "xml", "csv", "txt", "sdf", "png"])
-					.optional()
-					.default("json")
-					.describe("Response format"),
-				max_records: z
-					.number()
-					.optional()
-					.default(1000)
-					.describe("Maximum records to return"),
-				versions: z
-					.enum(["yes", "no"])
-					.optional()
-					.default("no")
-					.describe("Include version information (PMC)"),
-			},
-			async (params) => {
+			ExternalParamsShape,
+			async (params: ExternalParams) => {
 				try {
 					const { service, operation } = params;
 
@@ -116,12 +121,13 @@ export class ExternalAPIsTool extends BaseTool {
 					);
 				}
 			},
+			{ aliases: ["entrez-external"] },
 		);
 	}
 
 	override getCapabilities() {
 		return {
-			tool: "entrez-external",
+			tool: "entrez_external",
 			summary:
 				"Access PubChem chemistry datasets and PMC full-text utilities via one surface.",
 			operations: [
@@ -296,6 +302,7 @@ export class ExternalAPIsTool extends BaseTool {
 			tokenProfile: { typical: 220, upper: 9000 },
 			metadata: {
 				services: ["pubchem", "pmc"],
+				aliases: ["entrez-external"],
 			},
 		};
 	}

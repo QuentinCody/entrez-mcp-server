@@ -72,8 +72,8 @@ type ParsedStagingResult = ReturnType<IContentParser["parse"]>;
 
 export class DataManagerTool extends BaseTool {
 	register(): void {
-		this.context.server.tool(
-			"entrez-data",
+		this.registerTool(
+			"entrez_data",
 			"Stage Entrez payloads and explore them with SQL or smart summaries.",
 			DataManagerParamsShape,
 			async (params: DataManagerParams) => {
@@ -150,7 +150,7 @@ export class DataManagerTool extends BaseTool {
 						error instanceof Error ? error.message : String(error);
 
 					// Enhanced error reporting with operation-specific guidance
-					let enhancedError = `❌ **Error in ${params.operation || "entrez-data"}**: ${errorMessage}`;
+					let enhancedError = `❌ **Error in ${params.operation || "entrez_data"}**: ${errorMessage}`;
 
 					// Add operation-specific help
 					if (params.operation) {
@@ -177,12 +177,13 @@ export class DataManagerTool extends BaseTool {
 					return this.textResult(enhancedError);
 				}
 			},
+			{ aliases: ["entrez-data"] },
 		);
 	}
 
 	override getCapabilities() {
 		return {
-			tool: "entrez-data",
+			tool: "entrez_data",
 			summary:
 				"Manage staged datasets, perform SQL queries, and inspect schemas.",
 			operations: [
@@ -294,6 +295,7 @@ export class DataManagerTool extends BaseTool {
 			tokenProfile: { typical: 280, upper: 6000 },
 			metadata: {
 				requiresDurableObject: true,
+				aliases: ["entrez-data"],
 			},
 		};
 	}
@@ -546,8 +548,8 @@ export class DataManagerTool extends BaseTool {
 			}
 			responseText += `\n`;
 			responseText += `## 🚀 Next Steps:\n`;
-			responseText += `• Use \`entrez-data\` with operation='query' and this data_access_id to run SQL queries\n`;
-			responseText += `• Use \`entrez-data\` with operation='schema' to see table structures\n\n`;
+			responseText += `• Use \`entrez_data\` (alias \`entrez-data\`) with operation='query' and this data_access_id to run SQL queries\n`;
+			responseText += `• Use \`entrez_data\` (alias \`entrez-data\`) with operation='schema' to see table structures\n\n`;
 			responseText += `💡 **Pro tip**: Start with basic SELECT queries to explore your ${idCount} staged records!`;
 
 			if (includeRaw) {

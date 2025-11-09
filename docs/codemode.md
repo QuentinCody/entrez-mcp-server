@@ -1,18 +1,18 @@
 # Using Entrez MCP Tools from Cloudflare Code Mode
 
-Cloudflare's Code Mode runtime mounts MCP tools on a `codemode` proxy object whose keys include hyphens (for example `tool_Z1YjsltQ_entrez-capabilities`). In JavaScript, the `.` operator treats hyphens as subtraction, so expressions such as `codemode.tool_Z1YjsltQ_entrez-capabilities` are parsed as `(codemode.tool_Z1YjsltQ_entrez) - capabilities`. Because `capabilities` (and similar suffixes like `api`, `query`, `external`) are not defined identifiers, the runtime throws `ReferenceError: capabilities is not defined` before your tool call even executes.
+Cloudflare's Code Mode runtime mounts MCP tools on a `codemode` proxy object whose keys mirror the tool names. This server now advertises underscore names (for example `tool_Z1YjsltQ_entrez_capabilities`) so `codemode.tool_Z1YjsltQ_entrez_capabilities` works with normal dot access. Legacy hyphenated aliases (such as `tool_Z1YjsltQ_entrez-capabilities`) are still available for backwards compatibility, but JavaScript parses `codemode.tool_Z1YjsltQ_entrez-capabilities` as `(codemode.tool_Z1YjsltQ_entrez) - capabilities`, which throws `ReferenceError: capabilities is not defined`.
 
-To avoid this, always look up the tool functions with bracket notation (or another indirection) and call them through that reference. The proxy object is also non-enumerable, so `Object.keys(codemode)` will not expose the available tool IDs—store the IDs you expect to use.
+If you ever need to call the legacy alias, access it with bracket notation (e.g., `codemode["tool_Z1YjsltQ_entrez-capabilities"](args)`). The proxy object is also non-enumerable, so `Object.keys(codemode)` will not expose the available tool IDs—store the IDs you expect to use.
 
 ## Minimal Helper
 
 ```ts
 const TOOL_IDS = {
-  apiKey: "tool_Z1YjsltQ_system-api-key-status",
-  query: "tool_Z1YjsltQ_entrez-query",
-  data: "tool_Z1YjsltQ_entrez-data",
-  external: "tool_Z1YjsltQ_entrez-external",
-  capabilities: "tool_Z1YjsltQ_entrez-capabilities",
+  apiKey: "tool_Z1YjsltQ_system_api_key_status",
+  query: "tool_Z1YjsltQ_entrez_query",
+  data: "tool_Z1YjsltQ_entrez_data",
+  external: "tool_Z1YjsltQ_entrez_external",
+  capabilities: "tool_Z1YjsltQ_entrez_capabilities",
 };
 
 async function callTool(toolId, input) {
@@ -24,7 +24,7 @@ async function callTool(toolId, input) {
 }
 ```
 
-Use `callTool(TOOL_IDS.query, { ... })` instead of dotted access, and the hyphenated identifiers will no longer trigger ReferenceErrors.
+Use `callTool(TOOL_IDS.query, { ... })` instead of dotted access. If you ever see the legacy hyphenated names, swap `-` for `_` in the string or switch to bracket notation.
 
 ## End-to-End Demo Snippet
 
@@ -33,11 +33,11 @@ The following Code Mode function reproduces the “use all tools” workflow fro
 ```ts
 async function runNcbiWorkflow() {
   const TOOL_IDS = {
-    apiKey: "tool_Z1YjsltQ_system-api-key-status",
-    query: "tool_Z1YjsltQ_entrez-query",
-    data: "tool_Z1YjsltQ_entrez-data",
-    external: "tool_Z1YjsltQ_entrez-external",
-    capabilities: "tool_Z1YjsltQ_entrez-capabilities",
+    apiKey: "tool_Z1YjsltQ_system_api_key_status",
+    query: "tool_Z1YjsltQ_entrez_query",
+    data: "tool_Z1YjsltQ_entrez_data",
+    external: "tool_Z1YjsltQ_entrez_external",
+    capabilities: "tool_Z1YjsltQ_entrez_capabilities",
   };
 
   const callTool = async (toolId, input) => {

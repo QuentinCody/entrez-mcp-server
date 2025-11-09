@@ -245,8 +245,8 @@ type EntrezQueryParams = z.infer<typeof EntrezQueryParamsSchema>;
 
 export class EntrezQueryTool extends BaseTool {
 	register(): void {
-		this.context.server.tool(
-			"entrez-query",
+		this.registerTool(
+			"entrez_query",
 			"Compact gateway to Entrez E-utilities with smart defaults and staging hooks.",
 			EntrezQueryParamsShape,
 			async (params: EntrezQueryParams) => {
@@ -340,7 +340,7 @@ export class EntrezQueryTool extends BaseTool {
 						error instanceof Error ? error.message : String(error);
 
 					// Enhanced error reporting with context
-					let enhancedError = `❌ **Error in ${params.operation || "entrez-query"}**: ${errorMessage}`;
+					let enhancedError = `❌ **Error in ${params.operation || "entrez_query"}**: ${errorMessage}`;
 
 					// Add operation-specific guidance
 					if (params.operation) {
@@ -368,6 +368,7 @@ export class EntrezQueryTool extends BaseTool {
 					return this.textResult(enhancedError);
 				}
 			},
+			{ aliases: ["entrez-query"] },
 		);
 	}
 
@@ -461,7 +462,7 @@ export class EntrezQueryTool extends BaseTool {
 				],
 				remarks: [
 					"Automatically stages large payloads",
-					"See entrez-data fetch_and_stage for raw records",
+					"See entrez_data (alias entrez-data) fetch_and_stage for raw records",
 				],
 			},
 			{
@@ -547,7 +548,7 @@ export class EntrezQueryTool extends BaseTool {
 		];
 
 		return {
-			tool: "entrez-query",
+			tool: "entrez_query",
 			summary:
 				"Unified gateway to Entrez E-utilities with token-aware formatting and staging.",
 			operations,
@@ -562,6 +563,7 @@ export class EntrezQueryTool extends BaseTool {
 			metadata: {
 				supportsRetmode: ["xml", "json"],
 				defaultIntendedUse: "analysis",
+				aliases: ["entrez-query"],
 			},
 		};
 	}
