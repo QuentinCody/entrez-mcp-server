@@ -4,6 +4,7 @@ import { EntrezQueryTool } from "./consolidated-entrez.js";
 import { DataManagerTool } from "./consolidated-data.js";
 import { ExternalAPIsTool } from "./consolidated-external.js";
 import { CapabilitiesTool } from "./capabilities.js";
+import { ToolInfoTool } from "./tool-info.js";
 
 type ToolInstance = {
 	instance: {
@@ -25,11 +26,15 @@ export class ToolRegistry {
 
 		this.tools = coreTools.map((instance) => ({ instance }));
 
-		// Introspection tool needs access to registry view, so inject callback
-		const capabilitiesTool = new CapabilitiesTool(context, () =>
-			this.getCapabilities(),
-		);
-		this.tools.push({ instance: capabilitiesTool });
+		// Introspection tools need access to registry view, so inject callback
+		const describe = () => this.getCapabilities();
+
+		const capabilityTools = [
+			new ToolInfoTool(context, describe),
+			new CapabilitiesTool(context, describe),
+		];
+
+		this.tools.push(...capabilityTools.map((instance) => ({ instance })));
 	}
 
 	registerAll(): void {

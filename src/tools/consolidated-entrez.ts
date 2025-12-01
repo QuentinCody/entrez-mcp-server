@@ -368,7 +368,6 @@ export class EntrezQueryTool extends BaseTool {
 					return this.textResult(enhancedError);
 				}
 			},
-			{ aliases: ["entrez-query"] },
 		);
 	}
 
@@ -462,7 +461,7 @@ export class EntrezQueryTool extends BaseTool {
 				],
 				remarks: [
 					"Automatically stages large payloads",
-					"See entrez_data (alias entrez-data) fetch_and_stage for raw records",
+					"See entrez_data fetch_and_stage for raw records",
 				],
 			},
 			{
@@ -563,7 +562,6 @@ export class EntrezQueryTool extends BaseTool {
 			metadata: {
 				supportsRetmode: ["xml", "json"],
 				defaultIntendedUse: "analysis",
-				aliases: ["entrez-query"],
 			},
 		};
 	}
@@ -642,35 +640,79 @@ export class EntrezQueryTool extends BaseTool {
 		let formattedData: string;
 		if (typeof data === "object" && data.esearchresult) {
 			const result = data.esearchresult;
-			const count = result.count || "0";
-			const returned = result.retmax || "0";
-			const ids = result.idlist || [];
+			const totalResults = Number(result.count ?? 0);
+			const returnedResults = Number(result.retmax ?? 0);
+			const ids = Array.isArray(result.idlist) ? result.idlist : [];
+			const previewIds = ids.length > 0 ? ids.slice(0, 10) : [];
 
-			// Enhanced search results with more context
-			let contextInfo = "";
-			if (parseInt(count) === 0) {
-				contextInfo =
-					"\n\n❌ **No results found**\n💡 **Suggestions**:\n• Check spelling and try broader terms\n• Use fewer keywords or remove quotes\n• Try related synonyms or MeSH terms";
-			} else if (parseInt(count) > 10000) {
-				contextInfo =
-					"\n\n⚠️ **Large result set** - consider adding more specific terms or date filters";
-			} else if (parseInt(count) < 10) {
-				contextInfo =
-					"\n\n💡 **Small result set** - try broader terms if you need more results";
+			const messages: string[] = [];
+			const contextNotes: string[] = [];
+
+			if (totalResults === 0) {
+				contextNotes.push(
+					"❌ No results found; try broader keywords or MeSH terms.",
+				);
+			} else if (totalResults > 10000) {
+				contextNotes.push(
+					"⚠️ Large result set; consider adding filters or narrowing the query.",
+				);
+			} else if (totalResults < 10) {
+				contextNotes.push(
+					"💡 Small result set; try broader inclusion criteria if you need more records.",
+				);
 			}
 
-			// Add next steps guidance
-			const nextSteps =
-				parseInt(count) > 0
-					? '\n\n📋 **Next Steps**:\n• Use `summary` operation for article metadata\n• Use `fetch` with rettype="abstract" for abstracts\n• Use higher retmax for more results (max 100 recommended)'
-					: "";
+			const nextStepsList =
+				totalResults > 0
+					? [
+							"Use `summary` for article metadata previews",
+							'Use `fetch` with `rettype="abstract"` for full abstracts',
+							"Increase `retmax` (max 100 without staging) if you need more results",
+						]
+					: [];
 
-			formattedData = `📊 **Search Results**: ${count} total, ${returned} returned\n🆔 **IDs**: ${ids.length > 0 ? ids.slice(0, 10).join(", ") + (ids.length > 10 ? "..." : "") : "None"}${contextInfo}${nextSteps}`;
+			const summaryText = [
+				`📊 **Search Results**: ${totalResults} total, ${returnedResults} returned`,
+				`🆔 **IDs**: ${
+					previewIds.length > 0
+						? previewIds.join(", ") +
+							(ids.length > previewIds.length ? "..." : "")
+						: "None"
+				}`,
+				...contextNotes.map((note) => `\n${note}`),
+				nextStepsList.length > 0
+					? `\n📋 **Next Steps**:\n• ${nextStepsList.join("\n• ")}`
+					: "",
+			].join("\n");
+
+			const payload = {
+				success: true,
+				message: `E-utilities Search Results: ${totalResults} total, ${returnedResults} returned.`,
+				database,
+				query: queryTerm,
+				idlist: ids,
+				preview_ids: previewIds,
+				total_results: totalResults,
+				returned_results: returnedResults,
+				suggestions,
+				context_notes: contextNotes,
+				next_steps: nextStepsList,
+			};
+
+			return this.structuredResult(payload, summaryText + suggestionText);
 		} else {
 			formattedData = this.formatResponseData(data);
 		}
 
-		return this.textResult(
+		const fallbackPayload = {
+			success: true,
+			message: "E-utilities Search Results returned raw response",
+			database,
+			query: queryTerm,
+		};
+
+		return this.structuredResult(
+			fallbackPayload,
 			`**E-utilities Search Results**\n${formattedData}${suggestionText}`,
 		);
 	}

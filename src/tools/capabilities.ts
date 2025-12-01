@@ -8,7 +8,7 @@ import {
 
 type DescribeFn = () => ToolCapabilityDescriptor[];
 const CODEMODE_TIP =
-	"\n\n⚠️ **Code Mode Tip**: Prefer the underscore tool IDs (e.g., `tool_<id>_entrez_query`). If you must call a legacy hyphenated alias, use bracket notation like `codemode[\"tool_<id>_entrez-query\"]({...})` to avoid `ReferenceError`.";
+	'\n\n💡 **Code Mode Tip**: All tools use underscore naming (e.g., `entrez_query`, `entrez_data`, `entrez_external`). These are valid JavaScript/Python identifiers that work seamlessly in code execution.';
 
 const CapabilitiesParamsShape = {
 	tool: z.string().optional().describe("Filter results to a single tool name"),
@@ -69,7 +69,6 @@ export class CapabilitiesTool extends BaseTool {
 						return this.respondSummary(filtered);
 				}
 			},
-			{ aliases: ["entrez-capabilities"] },
 		);
 	}
 
@@ -81,7 +80,6 @@ export class CapabilitiesTool extends BaseTool {
 			contexts: ["capability_discovery", "debugging", "self_reflection"],
 			metadata: {
 				encouragesSelfDiscovery: true,
-				aliases: ["entrez-capabilities"],
 			},
 		};
 	}
@@ -162,10 +160,9 @@ export class CapabilitiesTool extends BaseTool {
 			const { metadata: _metadata, ...rest } = cap;
 			return rest;
 		});
-		const json = JSON.stringify({ tools: sanitized }, null, 2);
-		return this.textResult(
-			`\`\`\`json\n${json}\n\`\`\`${CODEMODE_TIP}`,
-		);
+		const payload = { tools: sanitized };
+		const tipMessage = `Structured tool metadata available (JSON).${CODEMODE_TIP}`;
+		return this.structuredResult(payload, tipMessage);
 	}
 
 	private formatOperation(operation: ToolOperationDescriptor): string {

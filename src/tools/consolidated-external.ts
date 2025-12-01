@@ -2,9 +2,7 @@ import { z } from "zod";
 import { BaseTool } from "./base.js";
 
 const ExternalParamsShape = {
-	service: z
-		.enum(["pubchem", "pmc"])
-		.describe("External service to access"),
+	service: z.enum(["pubchem", "pmc"]).describe("External service to access"),
 
 	operation: z
 		.enum([
@@ -121,7 +119,6 @@ export class ExternalAPIsTool extends BaseTool {
 					);
 				}
 			},
-			{ aliases: ["entrez-external"] },
 		);
 	}
 
@@ -302,7 +299,6 @@ export class ExternalAPIsTool extends BaseTool {
 			tokenProfile: { typical: 220, upper: 9000 },
 			metadata: {
 				services: ["pubchem", "pmc"],
-				aliases: ["entrez-external"],
 			},
 		};
 	}

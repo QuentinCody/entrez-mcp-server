@@ -9,18 +9,21 @@ import type { ToolContext } from "./tools/index.js";
 
 // Define our MCP agent for NCBI Entrez E-utilities
 export class EntrezMCP extends McpAgent implements ToolContext {
-	server = new McpServer({
-		name: "Complete NCBI APIs MCP Server",
-		version: "1.0.0",
-		description:
-			"A comprehensive MCP server for E-utilities, BLAST, PubChem, and PMC, with advanced data staging capabilities.",
-	}, {
-		capabilities: {
-			tools: {
-				listChanged: true
-			}
-		}
-	});
+	server = new McpServer(
+		{
+			name: "Complete NCBI APIs MCP Server",
+			version: "1.0.0",
+			description:
+				"A comprehensive MCP server for E-utilities, BLAST, PubChem, and PMC, with advanced data staging capabilities.",
+		},
+		{
+			capabilities: {
+				tools: {
+					listChanged: true,
+				},
+			},
+		},
+	);
 
 	baseUrl = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/";
 	defaultEmail = "entrez-mcp-server@example.com";
@@ -866,7 +869,7 @@ export default {
 						headers.set("MCP-Protocol-Version", protocolVersion);
 					} else {
 						// Set current protocol version if not specified
-						headers.set("MCP-Protocol-Version", "2024-11-05");
+						headers.set("MCP-Protocol-Version", "2025-11-25");
 					}
 
 					// Generate session ID for new connections (if not provided and this is initialization)
@@ -931,7 +934,7 @@ A comprehensive Model Context Protocol server for NCBI APIs including:
 Available Endpoints:
 - /mcp (Streamable HTTP transport)
 
-Protocol Version: 2024-11-05
+Protocol Version: 2025-11-25
 Detected Transport: ${transport}
 
 For usage instructions, connect with an MCP client.`,

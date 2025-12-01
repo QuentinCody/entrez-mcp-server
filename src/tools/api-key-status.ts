@@ -33,7 +33,6 @@ Need help? Run the rate limit tester:
 node test-rate-limits.js`;
 				return this.textResult(report);
 			},
-			{ aliases: ["system-api-key-status"] },
 		);
 	}
 
@@ -45,9 +44,6 @@ node test-rate-limits.js`;
 			contexts: ["diagnostics", "environment_setup"],
 			requiresApiKey: false,
 			tokenProfile: { typical: 80 },
-			metadata: {
-				aliases: ["system-api-key-status"],
-			},
 		};
 	}
 

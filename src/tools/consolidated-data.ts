@@ -177,7 +177,6 @@ export class DataManagerTool extends BaseTool {
 					return this.textResult(enhancedError);
 				}
 			},
-			{ aliases: ["entrez-data"] },
 		);
 	}
 
@@ -295,7 +294,6 @@ export class DataManagerTool extends BaseTool {
 			tokenProfile: { typical: 280, upper: 6000 },
 			metadata: {
 				requiresDurableObject: true,
-				aliases: ["entrez-data"],
 			},
 		};
 	}
@@ -306,11 +304,10 @@ export class DataManagerTool extends BaseTool {
 
 		if (!database || !ids) {
 			throw new Error(
-				"fetch_and_stage requires 'database' and 'ids' parameters",
+				"fetch_and_stage requires both 'database' and 'ids' parameters",
 			);
 		}
 
-		// Build fetch parameters
 		const db = database!;
 		const idList = ids!;
 		const fetchParams = new URLSearchParams({
@@ -318,21 +315,21 @@ export class DataManagerTool extends BaseTool {
 			id: idList,
 			tool: this.context.defaultTool,
 			email: this.context.defaultEmail,
-			retmode: "xml", // Force XML for better parsing
+			retmode: "xml",
 		});
 
-		if (rettype) fetchParams.append("rettype", rettype);
+		if (rettype) {
+			fetchParams.append("rettype", rettype);
+		}
 
 		const url = this.buildUrl("efetch.fcgi", fetchParams);
 		const response = await fetch(url);
 		const rawData = await this.parseResponse(response, "EFetch", "xml");
 
-		// Get parser and process data
 		const { getParserFor } = await import("../lib/parsers.js");
-		const parser = getParserFor(database!, rettype);
+		const parser = getParserFor(db, rettype);
 		const parseResult = parser.parse(rawData);
 
-		// Calculate staging metrics
 		const payloadSize =
 			typeof rawData === "string"
 				? rawData.length
@@ -343,14 +340,38 @@ export class DataManagerTool extends BaseTool {
 			payloadSize,
 		);
 
-		// Check if we should bypass staging
 		const allowDirectReturn = force_direct !== false;
 		if (bypassDecision.bypass && allowDirectReturn) {
-			const body = `📄 **Data Retrieved Directly** (${bypassDecision.reason})\n\n${include_raw ? this.formatResponseData(rawData) : this.formatStagingBypass(parseResult, payloadSize)}`;
-			return this.textResult(body);
+			const sampleData = parseResult.entities.slice(0, 3).map((entity) => ({
+				type: entity.type,
+				snippet: JSON.stringify(entity.data).slice(0, 120),
+			}));
+
+			const bypassPayload = {
+				success: true,
+				message: "Data retrieved directly without staging.",
+				database: db,
+				requested_ids: idList.split(",").map((id) => id.trim()),
+				entity_count: parseResult.entities.length,
+				payload_size_bytes: payloadSize,
+				reason: bypassDecision.reason,
+				sample_data: sampleData,
+				staging_skipped: true,
+				diagnostics: parseResult.diagnostics,
+			};
+
+			const bypassSummary = [
+				`📄 **Data Retrieved Directly** (${bypassDecision.reason})`,
+				`• Entities: ${parseResult.entities.length}`,
+				`• Parsed size: ${(payloadSize / 1024).toFixed(1)} KB`,
+				include_raw
+					? `\n✅ Raw data preview available`
+					: this.formatStagingBypass(parseResult, payloadSize),
+			].join("\n");
+
+			return this.structuredResult(bypassPayload, bypassSummary);
 		}
 
-		// Proceed with staging
 		return this.performStaging(
 			parseResult,
 			rawData,
@@ -400,45 +421,39 @@ export class DataManagerTool extends BaseTool {
 				throw new Error(`SQL query failed: ${error}`);
 			}
 
-			const result = (await queryResponse.json()) as unknown;
-			const rows = Array.isArray(result)
-				? (result as Record<string, unknown>[])
-				: [];
-			const rawJson = JSON.stringify(result, null, 2);
+			const queryResult = (await queryResponse.json()) as {
+				success?: boolean;
+				results?: Record<string, unknown>[];
+				row_count?: number;
+				query_executed?: string;
+				error?: string;
+				suggestions?: string[];
+			};
 
-			// Format result based on context
-			if (smart_summary && intended_use) {
-				const normalizedUse =
-					intended_use === "full" ? "analysis" : intended_use;
-				const formatted = SmartQueryGenerator.formatQueryResult(rows, {
-					operation: "query",
-					database: "staged_data",
-					intendedUse: normalizedUse as
-						| "search"
-						| "analysis"
-						| "citation"
-						| undefined,
-					maxTokens: max_tokens,
-				});
+			const payload = {
+				success: queryResult.success ?? true,
+				message: queryResult.success
+					? "SQL query executed successfully."
+					: (queryResult.error ?? "SQL query failed."),
+				data_access_id,
+				query: sql,
+				row_count: queryResult.row_count ?? queryResult.results?.length ?? 0,
+				results: queryResult.results ?? [],
+				query_executed: queryResult.query_executed ?? sql,
+				suggestions: queryResult.suggestions ?? [],
+				intended_use,
+				response_style,
+			};
 
-				const tokenEstimate = SmartQueryGenerator.estimateTokens(formatted);
-				const summaryMessage = `📊 **SQL Query Results** (${tokenEstimate} tokens)\n\n${formatted}`;
-				if (response_style === "json") {
-					return this.result([
-						this.textContent(summaryMessage),
-						this.textContent(`\nRaw rows:\n\n\`\`\`json\n${rawJson}\n\`\`\``),
-					]);
-				}
-				return this.textResult(summaryMessage);
-			}
+			const summaryLines = [
+				`📊 **SQL Query Results**: ${payload.row_count} rows`,
+				`🔎 Query: ${payload.query_executed}`,
+				payload.suggestions && payload.suggestions.length > 0
+					? `💡 Suggestions:\n• ${payload.suggestions.join("\n• ")}`
+					: "",
+			];
 
-			if (response_style === "json") {
-				return this.textResult(`\`\`\`json\n${rawJson}\n\`\`\``);
-			}
-
-			return this.textResult(
-				`📊 **SQL Query Results**\n\n\`\`\`json\n${rawJson}\n\`\`\``,
-			);
+			return this.structuredResult(payload, summaryLines.join("\n"));
 		} catch (error) {
 			throw new Error(
 				`Database query failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -451,7 +466,6 @@ export class DataManagerTool extends BaseTool {
 		const { data_access_id } = params;
 
 		try {
-			// Get Durable Object instance
 			const env = this.getEnvironment();
 			if (!env?.JSON_TO_SQL_DO) {
 				throw new Error("Staging service not available");
@@ -460,7 +474,6 @@ export class DataManagerTool extends BaseTool {
 			const doId = env.JSON_TO_SQL_DO.idFromName(data_access_id);
 			const doStub = env.JSON_TO_SQL_DO.get(doId);
 
-			// Get schema information
 			const schemaResponse = await doStub.fetch(
 				new Request("https://do/schema", {
 					method: "GET",
@@ -472,8 +485,30 @@ export class DataManagerTool extends BaseTool {
 				throw new Error(`Schema retrieval failed: ${error}`);
 			}
 
-			const schema = await schemaResponse.text();
-			return this.textResult(`📋 **Database Schema**\n\n${schema}`);
+			const schemaData = (await schemaResponse.json()) as any;
+			const tableNames = Array.isArray(schemaData.basic_schema)
+				? schemaData.basic_schema.map((table: any) => table.name)
+				: [];
+
+			const payload = {
+				success: true,
+				message: "Enhanced database schema retrieved successfully.",
+				data_access_id,
+				schema: schemaData,
+				table_names: tableNames,
+				quick_start: schemaData.quick_start ?? {},
+				schema_guidance: schemaData.schema_guidance ?? {},
+			};
+
+			const summary = [
+				`📋 **Database Schema** retrieved (${tableNames.length} tables)`,
+				tableNames.length > 0
+					? `• Tables: ${tableNames.join(", ")}`
+					: "• Tables information unavailable",
+				"Use recommended queries to explore the staged data.",
+			].join("\n");
+
+			return this.structuredResult(payload, summary);
 		} catch (error) {
 			throw new Error(
 				`Schema retrieval failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -483,10 +518,23 @@ export class DataManagerTool extends BaseTool {
 
 	// biome-ignore lint/suspicious/noExplicitAny: dynamic payload validated via zod schema
 	private async handleListDatasets(_params: DataManagerParams) {
-		// This would ideally list all available datasets, but requires additional infrastructure
-		return this.textResult(
-			`📚 **Dataset Management**\n\nTo list datasets, you need to track data_access_ids from previous staging operations.\n\n💡 **Tip**: Each successful \`fetch_and_stage\` operation returns a unique data_access_id for future queries.`,
-		);
+		const payload = {
+			success: true,
+			message:
+				"Dataset listing requires you to track previous data_access_id values.",
+			tips: [
+				"Store each returned data_access_id after staging for future reference",
+				"Use `entrez_data` with `operation='schema'` to inspect each dataset",
+			],
+		};
+
+		const summary = [
+			"📚 **Dataset Management**",
+			"Track data_access_ids from prior staging operations to query or inspect data.",
+			"Use the schema operation to confirm table structures before querying.",
+		].join("\n");
+
+		return this.structuredResult(payload, summary);
 	}
 
 	// biome-ignore lint/suspicious/noExplicitAny: staging parser returns heterogeneous entity structures
@@ -498,18 +546,15 @@ export class DataManagerTool extends BaseTool {
 		includeRaw: boolean,
 	) {
 		try {
-			// Get Durable Object instance
 			const env = this.getEnvironment();
 			if (!env?.JSON_TO_SQL_DO) {
 				throw new Error("Staging service not available");
 			}
 
-			// Create unique access ID
 			const dataAccessId = await this.generateDataAccessId(rawData);
 			const doId = env.JSON_TO_SQL_DO.idFromName(dataAccessId);
 			const doStub = env.JSON_TO_SQL_DO.get(doId);
 
-			// Stage the data
 			const stagingResponse = await doStub.fetch(
 				new Request("https://do/process", {
 					method: "POST",
@@ -526,37 +571,79 @@ export class DataManagerTool extends BaseTool {
 				throw new Error(`Staging failed: ${error}`);
 			}
 
-			const stagingInfo = (await stagingResponse.json()) as {
-				totalRows?: number;
-				tableCount?: number;
-				tables?: string[];
+			const stagingResult = (await stagingResponse.json()) as {
+				success?: boolean;
+				message?: string;
+				data_access_id?: string;
+				processing_details?: {
+					tables_created?: string[];
+					table_count?: number;
+					total_rows?: number;
+					data_quality?: unknown;
+					parsing_diagnostics?: unknown;
+					schema_guidance?: {
+						recommended_queries?: unknown[];
+						common_joins?: unknown[];
+						column_descriptions?: unknown[];
+						example_usage?: unknown[];
+					};
+				};
 			};
-			const idCount = ids.split(",").length;
-
-			let responseText = `✅ **Data Successfully Staged**\n\n`;
-			responseText += `🗃️  **Data Access ID**: \`${dataAccessId}\`\n`;
-
-			// Add defensive checks for staging info properties
-			if (
-				stagingInfo.totalRows !== undefined &&
-				stagingInfo.tableCount !== undefined
-			) {
-				responseText += `📊  **Records Staged**: ${stagingInfo.totalRows} rows across ${stagingInfo.tableCount} tables\n`;
+			const details = stagingResult.processing_details ?? {};
+			const tables = details.tables_created ?? [];
+			const joinTables =
+				details.schema_guidance?.common_joins?.flatMap(
+					(join: any) => join.tables ?? [],
+				) ?? [];
+			const suggestedTables = Array.from(new Set([...tables, ...joinTables]));
+			if (suggestedTables.length === 0) {
+				suggestedTables.push("article", "meshterm", "author");
 			}
-			if (stagingInfo.tables && Array.isArray(stagingInfo.tables)) {
-				responseText += `📋  **Tables Created**: ${stagingInfo.tables.join(", ")}\n`;
-			}
-			responseText += `\n`;
-			responseText += `## 🚀 Next Steps:\n`;
-			responseText += `• Use \`entrez_data\` (alias \`entrez-data\`) with operation='query' and this data_access_id to run SQL queries\n`;
-			responseText += `• Use \`entrez_data\` (alias \`entrez-data\`) with operation='schema' to see table structures\n\n`;
-			responseText += `💡 **Pro tip**: Start with basic SELECT queries to explore your ${idCount} staged records!`;
+			const idList = ids
+				.split(",")
+				.map((id) => id.trim())
+				.filter((id) => id.length > 0);
+
+			const stagedRecordCount = details.total_rows ?? 0;
+			const stagedTableCount = details.table_count ?? suggestedTables.length;
+
+			const payload: Record<string, unknown> = {
+				success: stagingResult.success ?? true,
+				message:
+					stagingResult.message ??
+					"Data successfully staged into the SQL dataset.",
+				data_access_id: dataAccessId,
+				database,
+				requested_ids: idList,
+				staged_record_count: stagedRecordCount,
+				staged_table_count: stagedTableCount,
+				tables_created: tables,
+				suggested_tables: suggestedTables,
+				schema_guidance: details.schema_guidance ?? {},
+				diagnostics: details.parsing_diagnostics ?? {},
+				quality_metrics: details.data_quality ?? {},
+			};
 
 			if (includeRaw) {
-				responseText += `\n\n## 📄 Raw Data:\n\`\`\`\n${typeof rawData === "string" ? rawData.substring(0, 1000) : JSON.stringify(rawData).substring(0, 1000)}...\n\`\`\``;
+				const rawString =
+					typeof rawData === "string"
+						? rawData
+						: JSON.stringify(rawData, null, 2);
+				payload.raw_preview = `${rawString.substring(0, 1000)}${
+					rawString.length > 1000 ? "..." : ""
+				}`;
 			}
 
-			return this.textResult(responseText);
+			const summaryLines = [
+				`✅ **Data Successfully Staged**`,
+				`🗃️  **Data Access ID**: \`${dataAccessId}\``,
+				`📊  **Records Staged**: ${stagedRecordCount} rows across ${stagedTableCount} tables`,
+				`📋  **Tables Created**: ${tables.join(", ") || "none"}`,
+				`🔍  **Suggested Tables**: ${suggestedTables.join(", ")}`,
+				`💡  Start with \`SELECT * FROM ${suggestedTables[0]} LIMIT 5\` to explore the data`,
+			];
+
+			return this.structuredResult(payload, summaryLines.join("\n"));
 		} catch (error) {
 			throw new Error(
 				`Data staging failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -595,7 +682,6 @@ export class DataManagerTool extends BaseTool {
 		} = params;
 
 		try {
-			// Get schema first
 			const schemaResponse = await doStub.fetch(
 				new Request("https://do/schema", {
 					method: "GET",
@@ -608,12 +694,12 @@ export class DataManagerTool extends BaseTool {
 
 			const schemaData = (await schemaResponse.json()) as SchemaSummary;
 
-			// Generate context-aware queries
 			const queryContext: QueryContext = {
 				operation: "smart_summary",
 				database: "staged_data",
 				intendedUse: intended_use,
 				maxTokens: max_tokens,
+				userQuery: params.user_query,
 			};
 
 			const queries = SmartQueryGenerator.generateContextualQueries(
@@ -621,7 +707,6 @@ export class DataManagerTool extends BaseTool {
 				queryContext,
 			);
 
-			// Execute queries and format results
 			const queryExecutor = async (sql: string) => {
 				const response = await doStub.fetch(
 					new Request("https://do/query-enhanced", {
@@ -644,25 +729,36 @@ export class DataManagerTool extends BaseTool {
 				queryContext,
 			);
 
-			let responseText = `${smartResult.summary} (${smartResult.tokenEstimate} tokens)\n\n`;
-			responseText += `## 🔍 **Key Insights**:\n`;
-			smartResult.keyFindings.forEach((finding, i) => {
-				responseText += `${i + 1}. ${finding}\n`;
-			});
+			const payload = {
+				success: true,
+				message: smartResult.summary,
+				data_access_id,
+				token_estimate: smartResult.tokenEstimate,
+				key_findings: smartResult.keyFindings,
+				suggested_queries: smartResult.suggestedQueries,
+				intended_use,
+				max_tokens,
+			};
 
-			responseText += `\n## 📊 **Analysis Results**:\n${smartResult.summary}\n\n`;
+			const summaryLines = [
+				`${smartResult.summary} (${smartResult.tokenEstimate} tokens)`,
+				"## 🔍 Key Insights:",
+				...smartResult.keyFindings.map((finding, i) => `${i + 1}. ${finding}`),
+				"## 💡 Suggested Follow-up Queries:",
+				...smartResult.suggestedQueries.map((suggestion) => `• ${suggestion}`),
+				`Dataset ID: ${data_access_id}`,
+			];
 
-			responseText += `## 💡 **Available Operations**:\n`;
-			smartResult.suggestedQueries.forEach((suggestion) => {
-				responseText += `• ${suggestion}\n`;
-			});
-
-			responseText += `\n**Dataset ID**: \`${data_access_id}\``;
-
-			return this.textResult(responseText);
+			return this.structuredResult(payload, summaryLines.join("\n"));
 		} catch (error) {
-			return this.textResult(
-				`❌ **Smart Summary Generation Failed**: ${error instanceof Error ? error.message : String(error)}\n\nFallback: Use manual SQL queries with the 'sql' parameter.`,
+			return this.structuredResult(
+				{
+					success: false,
+					message: `Smart Summary Generation Failed: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				},
+				`❌ Smart summary generation failed. Use manual SQL queries or retry with a different context.`,
 			);
 		}
 	}

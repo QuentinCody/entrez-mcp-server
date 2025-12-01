@@ -74,7 +74,6 @@ type ToolResult = {
 	content: TextToolContent[];
 	_meta?: Record<string, unknown>;
 	structuredContent?: Record<string, unknown>;
-	[key: string]: unknown;
 };
 
 export abstract class BaseTool {
@@ -103,8 +102,27 @@ export abstract class BaseTool {
 	}
 
 	// biome-ignore lint/suspicious/noExplicitAny: helper returns MCP-compatible payload without rigid typing
-	protected textResult(...messages: string[]): any {
+	protected textResult(...messages: string[]): ToolResult {
 		return this.result(messages.map((message) => this.textContent(message)));
+	}
+
+	protected structuredResult(
+		payload: Record<string, unknown>,
+		summary?: string | string[],
+	): ToolResult {
+		const content = !summary
+			? []
+			: Array.isArray(summary)
+				? summary.map((text) => this.textContent(text))
+				: [this.textContent(summary)];
+
+		return {
+			content,
+			structuredContent: {
+				...payload,
+				success: payload.success ?? true,
+			},
+		};
 	}
 
 	protected buildUrl(endpoint: string, params: URLSearchParams): string {
