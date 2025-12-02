@@ -80,17 +80,25 @@ export class DataManagerTool extends BaseTool {
 				try {
 					const { operation } = params;
 
-					// Enhanced validation based on operation
+					// Enhanced validation based on operation - return errors instead of throwing
 					switch (operation) {
 						case "fetch_and_stage": {
 							if (!params.database) {
-								throw new Error(
-									"fetch_and_stage requires 'database' parameter. Specify a database like 'pubmed', 'protein', or 'nuccore'.",
+								return this.errorResult(
+									"fetch_and_stage requires 'database' parameter",
+									[
+										"Specify a database like 'pubmed', 'protein', or 'nuccore'",
+										'Example: { operation: "fetch_and_stage", database: "pubmed", ids: "12345,67890" }',
+									],
 								);
 							}
 							if (!params.ids) {
-								throw new Error(
-									"fetch_and_stage requires 'ids' parameter. Provide comma-separated UIDs (e.g., \"12345,67890\").",
+								return this.errorResult(
+									"fetch_and_stage requires 'ids' parameter",
+									[
+										"Provide comma-separated UIDs",
+										'Example: { operation: "fetch_and_stage", database: "pubmed", ids: "12345,67890" }',
+									],
 								);
 							}
 							// Validate database name
@@ -104,28 +112,44 @@ export class DataManagerTool extends BaseTool {
 								"pmc",
 							];
 							if (!validDatabases.includes(params.database.toLowerCase())) {
-								throw new Error(
-									`Invalid database "${params.database}". Valid options: ${validDatabases.join(", ")}`,
+								return this.errorResult(
+									`Invalid database "${params.database}"`,
+									[
+										`Valid options: ${validDatabases.join(", ")}`,
+										"Use a supported NCBI database name",
+									],
 								);
 							}
 							break;
 						}
 						case "query":
 							if (!params.data_access_id) {
-								throw new Error(
-									"query requires 'data_access_id' parameter. Use the ID returned from fetch_and_stage operation.",
+								return this.errorResult(
+									"query requires 'data_access_id' parameter",
+									[
+										"Use the ID returned from fetch_and_stage operation",
+										'Example: { operation: "query", data_access_id: "abc123", sql: "SELECT * FROM article" }',
+									],
 								);
 							}
 							if (!params.sql && !params.smart_summary) {
-								throw new Error(
-									"query requires either 'sql' parameter (for custom queries) or 'smart_summary=true' (for auto-generated insights).",
+								return this.errorResult(
+									"query requires either 'sql' parameter or 'smart_summary=true'",
+									[
+										"Provide SQL: { sql: \"SELECT * FROM article LIMIT 10\" }",
+										"Or use smart summary: { smart_summary: true }",
+									],
 								);
 							}
 							break;
 						case "schema":
 							if (!params.data_access_id) {
-								throw new Error(
-									"schema requires 'data_access_id' parameter. Use the ID returned from fetch_and_stage operation.",
+								return this.errorResult(
+									"schema requires 'data_access_id' parameter",
+									[
+										"Use the ID returned from fetch_and_stage operation",
+										'Example: { operation: "schema", data_access_id: "abc123" }',
+									],
 								);
 							}
 							break;
@@ -143,39 +167,79 @@ export class DataManagerTool extends BaseTool {
 						case "list_datasets":
 							return await this.handleListDatasets(params);
 						default:
-							throw new Error(`Unknown operation: ${operation}`);
+							return this.errorResult(`Unknown operation: ${operation}`, [
+								"Valid operations: fetch_and_stage, query, schema, list_datasets",
+							]);
 					}
 				} catch (error) {
+					// Catch unexpected runtime errors (network issues, parsing failures, etc.)
 					const errorMessage =
 						error instanceof Error ? error.message : String(error);
 
-					// Enhanced error reporting with operation-specific guidance
-					let enhancedError = `❌ **Error in ${params.operation || "entrez_data"}**: ${errorMessage}`;
+					// Build contextual help based on operation
+					const contextualHelp: string[] = [];
 
-					// Add operation-specific help
 					if (params.operation) {
 						switch (params.operation) {
 							case "fetch_and_stage":
-								enhancedError +=
-									"\n\n🗃️ **Staging Help**: Use UIDs from successful search results and specify a valid database";
+								contextualHelp.push(
+									"🗃️ Staging Tips: Use UIDs from successful search results and specify a valid database",
+								);
 								break;
 							case "query":
-								enhancedError +=
-									"\n\n🔍 **Query Help**: Use the data_access_id from fetch_and_stage, then provide SQL or use smart_summary=true";
+								contextualHelp.push(
+									"🔍 Query Tips: Use the data_access_id from fetch_and_stage, then provide SQL or use smart_summary=true",
+								);
 								break;
 							case "schema":
-								enhancedError +=
-									"\n\n📋 **Schema Help**: Use the data_access_id from a successful fetch_and_stage operation";
+								contextualHelp.push(
+									"📋 Schema Tips: Use the data_access_id from a successful fetch_and_stage operation",
+								);
 								break;
 						}
 					}
 
 					// Add general guidance
-					enhancedError +=
-						"\n\n💡 **General Tips**:\n• Always use data_access_id from successful staging operations\n• Try fetch_and_stage first before querying data";
+					contextualHelp.push(
+						"💡 General Tips: Always use data_access_id from successful staging operations",
+						"💡 Try fetch_and_stage first before querying data",
+					);
 
-					return this.textResult(enhancedError);
+					// Return error with context per MCP spec
+					return this.errorResult(
+						`Error in ${params.operation || "entrez_data"}: ${errorMessage}`,
+						contextualHelp,
+					);
 				}
+			},
+			{
+				title: "NCBI Data Staging & SQL Query Manager",
+				outputSchema: {
+					type: "object",
+					properties: {
+						success: {
+							type: "boolean",
+							description: "Whether the operation succeeded",
+						},
+						data_access_id: {
+							type: "string",
+							description:
+								"Unique identifier for the staged dataset (fetch_and_stage operation)",
+						},
+						schema: {
+							type: "object",
+							description: "Database schema information (schema operation)",
+						},
+						results: {
+							type: "array",
+							description: "Query results (query operation)",
+						},
+						datasets: {
+							type: "array",
+							description: "List of available datasets (list_datasets operation)",
+						},
+					},
+				},
 			},
 		);
 	}

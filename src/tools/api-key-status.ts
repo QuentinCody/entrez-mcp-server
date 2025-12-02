@@ -5,13 +5,14 @@ export class ApiKeyStatusTool extends BaseTool {
 		this.registerTool(
 			"system_api_key_status",
 			"Report NCBI API key presence and summarise the effective rate limits.",
-			{},
+			this.emptySchema(), // Per MCP spec: use proper empty schema for tools with no parameters
 			async () => {
-				const status = this.getApiKeyStatus();
+				try {
+					const status = this.getApiKeyStatus();
 
-				const helpMessage = status.hasKey
-					? `Your NCBI API key is properly configured and active! You can make up to ${status.rateLimit}.`
-					: `No API key configured. You're limited to ${status.rateLimit}. 
+					const helpMessage = status.hasKey
+						? `Your NCBI API key is properly configured and active! You can make up to ${status.rateLimit}.`
+						: `No API key configured. You're limited to ${status.rateLimit}.
 
 To get 3x better performance:
 1. Get your free API key: https://ncbiinsights.ncbi.nlm.nih.gov/2017/11/02/new-api-keys-for-the-e-utilities/
@@ -21,7 +22,7 @@ To get 3x better performance:
 
 See API_KEY_SETUP.md for detailed instructions.`;
 
-				const report = `NCBI API Key Status Report
+					const report = `NCBI API Key Status Report
 ================================
 
 ${status.message}
@@ -31,7 +32,43 @@ ${helpMessage}
 
 Need help? Run the rate limit tester:
 node test-rate-limits.js`;
-				return this.textResult(report);
+
+					// Return structured result with both text and structured content
+					return this.structuredResult(
+						{
+							hasKey: status.hasKey,
+							rateLimit: status.rateLimit,
+							message: status.message,
+						},
+						report,
+					);
+				} catch (error) {
+					// Return tool execution error per MCP spec
+					return this.errorResult(
+						`Failed to check API key status: ${error instanceof Error ? error.message : String(error)}`,
+					);
+				}
+			},
+			{
+				title: "NCBI API Key Status Reporter",
+				outputSchema: {
+					type: "object",
+					properties: {
+						hasKey: {
+							type: "boolean",
+							description: "Whether an API key is configured",
+						},
+						rateLimit: {
+							type: "string",
+							description: "Current rate limit (requests per second)",
+						},
+						message: {
+							type: "string",
+							description: "Human-readable status message",
+						},
+					},
+					required: ["hasKey", "rateLimit", "message"],
+				},
 			},
 		);
 	}

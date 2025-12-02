@@ -149,9 +149,7 @@ class QuickStartGuide {
 		console.log(
 			"  - entrez_capabilities - Inspect tool signatures and token profiles",
 		);
-		console.log(
-			"  - system_api_key_status - Check API key configuration",
-		);
+		console.log("  - system_api_key_status - Check API key configuration");
 
 		console.log("\n🎉 You're ready to go! Happy researching! 🧬");
 	}

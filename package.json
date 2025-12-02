@@ -24,7 +24,7 @@
 	},
 	"dependencies": {
 		"@cloudflare/workers-types": "^4.20240806.0",
-		"@modelcontextprotocol/sdk": "^1.12.3",
+		"@modelcontextprotocol/sdk": "1.24.0",
 		"@types/jszip": "^3.4.0",
 		"agents": "^0.2.13",
 		"jszip": "^3.10.1",

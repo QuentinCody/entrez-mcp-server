@@ -150,7 +150,6 @@ export class EntrezSDK {
 			try {
 				return JSON.parse(payload);
 			} catch (error) {
-				continue;
 			}
 		}
 

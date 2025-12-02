@@ -13,8 +13,7 @@ export class EntrezMCP extends McpAgent implements ToolContext {
 		{
 			name: "Complete NCBI APIs MCP Server",
 			version: "1.0.0",
-			description:
-				"A comprehensive MCP server for E-utilities, BLAST, PubChem, and PMC, with advanced data staging capabilities.",
+			title: "NCBI Entrez & External APIs Gateway",
 		},
 		{
 			capabilities: {

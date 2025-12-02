@@ -102,7 +102,16 @@ export class ExternalAPIsTool extends BaseTool {
 					const { service, operation } = params;
 
 					// Validate service-operation combinations
-					this.validateServiceOperation(service, operation);
+					const validationResult = this.validateServiceOperation(
+						service,
+						operation,
+					);
+					if (!validationResult.isValid) {
+						return this.errorResult(
+							validationResult.error || "Invalid service/operation combination",
+							validationResult.suggestions || [],
+						);
+					}
 
 					// Route to appropriate service handler
 					switch (service) {
@@ -111,13 +120,61 @@ export class ExternalAPIsTool extends BaseTool {
 						case "pmc":
 							return await this.handlePMC(operation, params);
 						default:
-							throw new Error(`Unknown service: ${service}`);
+							return this.errorResult(`Unknown service: ${service}`, [
+								"Valid services: pubchem, pmc",
+							]);
 					}
 				} catch (error) {
-					return this.textResult(
-						`Error in External APIs (${params.service}/${params.operation}): ${error instanceof Error ? error.message : String(error)}`,
+					// Catch unexpected runtime errors (network issues, API failures, etc.)
+					const errorMessage =
+						error instanceof Error ? error.message : String(error);
+
+					// Build contextual help based on service
+					const contextualHelp: string[] = [];
+
+					if (params.service === "pubchem") {
+						contextualHelp.push(
+							"🧪 PubChem Tips: Use valid CIDs, compound names, or chemical structures",
+						);
+						contextualHelp.push(
+							"📋 Valid operations: compound, substance, bioassay, structure_search",
+						);
+					} else if (params.service === "pmc") {
+						contextualHelp.push(
+							"📄 PMC Tips: Use valid PMC IDs, PMIDs, or DOIs",
+						);
+						contextualHelp.push(
+							"📋 Valid operations: id_convert, oa_service, citation_export",
+						);
+					}
+
+					// Return error with context per MCP spec
+					return this.errorResult(
+						`Error in ${params.service}/${params.operation}: ${errorMessage}`,
+						contextualHelp,
 					);
 				}
+			},
+			{
+				title: "External APIs Gateway (PubChem & PMC)",
+				outputSchema: {
+					type: "object",
+					properties: {
+						success: {
+							type: "boolean",
+							description: "Whether the operation succeeded",
+						},
+						data: {
+							type: "object",
+							description:
+								"Response data from external API (structure varies by service)",
+						},
+						source: {
+							type: "string",
+							description: "Source service (pubchem or pmc)",
+						},
+					},
+				},
 			},
 		);
 	}
@@ -303,17 +360,28 @@ export class ExternalAPIsTool extends BaseTool {
 		};
 	}
 
-	private validateServiceOperation(service: string, operation: string) {
+	private validateServiceOperation(
+		service: string,
+		operation: string,
+	): { isValid: boolean; error?: string; suggestions?: string[] } {
 		const validCombinations: Record<string, string[]> = {
 			pubchem: ["compound", "substance", "bioassay", "structure_search"],
 			pmc: ["id_convert", "oa_service", "citation_export"],
 		};
 
 		if (!validCombinations[service]?.includes(operation)) {
-			throw new Error(
-				`Invalid operation '${operation}' for service '${service}'. Valid operations: ${validCombinations[service]?.join(", ") || "none"}`,
-			);
+			const validOps = validCombinations[service] || [];
+			return {
+				isValid: false,
+				error: `Invalid operation '${operation}' for service '${service}'`,
+				suggestions:
+					validOps.length > 0
+						? [`Valid operations for ${service}: ${validOps.join(", ")}`]
+						: [`Service '${service}' is not recognized`],
+			};
 		}
+
+		return { isValid: true };
 	}
 
 	// biome-ignore lint/suspicious/noExplicitAny: dynamic payload validated via zod schema

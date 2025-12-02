@@ -8,7 +8,7 @@ import {
 
 type DescribeFn = () => ToolCapabilityDescriptor[];
 const CODEMODE_TIP =
-	'\n\n💡 **Code Mode Tip**: All tools use underscore naming (e.g., `entrez_query`, `entrez_data`, `entrez_external`). These are valid JavaScript/Python identifiers that work seamlessly in code execution.';
+	"\n\n💡 **Code Mode Tip**: All tools use underscore naming (e.g., `entrez_query`, `entrez_data`, `entrez_external`). These are valid JavaScript/Python identifiers that work seamlessly in code execution.";
 
 const CapabilitiesParamsShape = {
 	tool: z.string().optional().describe("Filter results to a single tool name"),
@@ -50,14 +50,13 @@ export class CapabilitiesTool extends BaseTool {
 					: capabilities;
 
 				if (filtered.length === 0) {
-					return {
-						content: [
-							{
-								type: "text" as const,
-								text: `No tool metadata found for '${tool}'. Use 'entrez_capabilities' (alias 'entrez-capabilities') with no arguments to list all tools.`,
-							},
+					return this.errorResult(
+						`No tool metadata found for '${tool}'`,
+						[
+							"Use 'entrez_capabilities' with no arguments to list all tools",
+							"Check tool name spelling",
 						],
-					};
+					);
 				}
 
 				switch (format) {
@@ -68,6 +67,43 @@ export class CapabilitiesTool extends BaseTool {
 					default:
 						return this.respondSummary(filtered);
 				}
+			},
+			{
+				title: "Tool Capabilities Inspector",
+				outputSchema: {
+					type: "object",
+					properties: {
+						tools: {
+							type: "array",
+							description: "Array of tool capability descriptors",
+							items: {
+								type: "object",
+								properties: {
+									tool: {
+										type: "string",
+										description: "Tool identifier",
+									},
+									summary: {
+										type: "string",
+										description: "Brief description of the tool",
+									},
+									operations: {
+										type: "array",
+										description: "Available operations",
+									},
+									requiresApiKey: {
+										type: "boolean",
+										description: "Whether API key is required",
+									},
+									stageable: {
+										type: "boolean",
+										description: "Whether tool supports data staging",
+									},
+								},
+							},
+						},
+					},
+				},
 			},
 		);
 	}

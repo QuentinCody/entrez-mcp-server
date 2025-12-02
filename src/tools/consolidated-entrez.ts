@@ -253,19 +253,24 @@ export class EntrezQueryTool extends BaseTool {
 				try {
 					const { operation, database = "pubmed", ids, term } = params;
 
-					// Enhanced validation based on operation
+					// Enhanced validation based on operation - return errors instead of throwing
 					switch (operation) {
 						case "search":
 						case "global_query":
 						case "spell":
 							if (!term) {
-								throw new Error(
-									`${operation} requires 'term' parameter. Provide a search query or keywords.`,
+								return this.errorResult(
+									`${operation} requires 'term' parameter`,
+									[
+										"Provide a search query or keywords",
+										`Example: { operation: "${operation}", term: "CRISPR gene editing" }`,
+									],
 								);
 							}
 							if (term.trim().length === 0) {
-								throw new Error(
-									`${operation} requires a non-empty 'term' parameter.`,
+								return this.errorResult(
+									`${operation} requires a non-empty 'term' parameter`,
+									["Provide meaningful search keywords or query"],
 								);
 							}
 							break;
@@ -274,17 +279,21 @@ export class EntrezQueryTool extends BaseTool {
 						case "post":
 						case "link": {
 							if (!ids) {
-								throw new Error(
-									`${operation} requires 'ids' parameter. Provide comma-separated UIDs (e.g., "12345,67890").`,
+								return this.errorResult(
+									`${operation} requires 'ids' parameter`,
+									[
+										"Provide comma-separated UIDs",
+										'Example: { operation: "summary", ids: "12345,67890" }',
+									],
 								);
 							}
 							// Validate IDs format
 							const idsValidation = validateIds(ids);
 							if (!idsValidation.isValid) {
-								const suggestions = idsValidation.suggestions
-									? `\n💡 ${idsValidation.suggestions.join(", ")}`
-									: "";
-								throw new Error(`${idsValidation.error}${suggestions}`);
+								return this.errorResult(
+									idsValidation.error || "Invalid IDs format",
+									idsValidation.suggestions || [],
+								);
 							}
 							break;
 						}
@@ -294,23 +303,25 @@ export class EntrezQueryTool extends BaseTool {
 					// Validate database parameter
 					const dbValidation = validateDatabase(database);
 					if (!dbValidation.isValid) {
-						const suggestions =
-							dbValidation.suggestions && dbValidation.suggestions.length > 0
-								? `\n💡 Did you mean: ${dbValidation.suggestions.join(", ")}?`
-								: "";
-						throw new Error(`${dbValidation.error}${suggestions}`);
+						const suggestions = dbValidation.suggestions || [];
+						if (dbValidation.correctedValue) {
+							suggestions.unshift(`Did you mean: ${dbValidation.correctedValue}?`);
+						}
+						return this.errorResult(
+							dbValidation.error || `Invalid database: ${database}`,
+							suggestions,
+						);
 					}
 
 					// Validate rettype if provided
 					if (params.rettype) {
 						const rettypeValidation = validateRettype(database, params.rettype);
 						if (!rettypeValidation.isValid) {
-							const suggestions =
-								rettypeValidation.suggestions &&
-								rettypeValidation.suggestions.length > 0
-									? `\n💡 Valid options: ${rettypeValidation.suggestions.join(", ")}`
-									: "";
-							throw new Error(`${rettypeValidation.error}${suggestions}`);
+							return this.errorResult(
+								rettypeValidation.error ||
+									`Invalid rettype: ${params.rettype}`,
+								rettypeValidation.suggestions || [],
+							);
 						}
 					}
 
@@ -333,40 +344,70 @@ export class EntrezQueryTool extends BaseTool {
 						case "spell":
 							return await this.handleSpell(params);
 						default:
-							throw new Error(`Unknown operation: ${operation}`);
+							return this.errorResult(`Unknown operation: ${operation}`, [
+								"Valid operations: search, summary, info, fetch, link, post, global_query, spell",
+							]);
 					}
 				} catch (error) {
+					// Catch unexpected runtime errors (network issues, parsing failures, etc.)
 					const errorMessage =
 						error instanceof Error ? error.message : String(error);
 
-					// Enhanced error reporting with context
-					let enhancedError = `❌ **Error in ${params.operation || "entrez_query"}**: ${errorMessage}`;
+					// Build contextual help based on operation
+					const contextualHelp: string[] = [];
 
-					// Add operation-specific guidance
 					if (params.operation) {
 						switch (params.operation) {
 							case "search":
-								enhancedError +=
-									'\n\n🔍 **Search Help**: Use keywords like "cancer treatment" or field tags like "author[AU]"';
+								contextualHelp.push(
+									'🔍 Search Tips: Use keywords like "cancer treatment" or field tags like "author[AU]"',
+								);
 								break;
 							case "summary":
 							case "link":
-								enhancedError +=
-									'\n\n🆔 **ID Help**: Use comma-separated numeric UIDs (e.g., "12345,67890")';
+								contextualHelp.push(
+									'🆔 ID Format: Use comma-separated numeric UIDs (e.g., "12345,67890")',
+								);
 								break;
 							case "fetch":
-								enhancedError +=
-									'\n\n🆔 **ID Help**: Use comma-separated numeric UIDs (e.g., "12345,67890")';
+								contextualHelp.push(
+									'🆔 ID Format: Use comma-separated numeric UIDs (e.g., "12345,67890")',
+								);
 								if (errorMessage.includes("rettype")) {
-									enhancedError +=
-										'\n📄 **Format Help**: Use rettype="abstract" for PubMed or "fasta" for sequences';
+									contextualHelp.push(
+										'📄 Format Options: Use rettype="abstract" for PubMed or "fasta" for sequences',
+									);
 								}
 								break;
 						}
 					}
 
-					return this.textResult(enhancedError);
+					// Return error with context per MCP spec
+					return this.errorResult(
+						`Error in ${params.operation || "entrez_query"}: ${errorMessage}`,
+						contextualHelp,
+					);
 				}
+			},
+			{
+				title: "NCBI Entrez E-utilities Gateway",
+				outputSchema: {
+					type: "object",
+					properties: {
+						success: {
+							type: "boolean",
+							description: "Whether the operation succeeded",
+						},
+						data: {
+							type: "object",
+							description: "Response data from NCBI (structure varies by operation)",
+						},
+						metadata: {
+							type: "object",
+							description: "Additional metadata about the response",
+						},
+					},
+				},
 			},
 		);
 	}

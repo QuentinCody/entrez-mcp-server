@@ -50,8 +50,12 @@ export class ToolInfoTool extends BaseTool {
 				});
 
 				if (!match) {
-					return this.textResult(
-						`No tool metadata found for '${params.tool}'. Use 'entrez_capabilities' with no arguments to list all tools.`,
+					return this.errorResult(
+						`No tool metadata found for '${params.tool}'`,
+						[
+							"Use 'entrez_capabilities' to list all tools",
+							"Check tool name spelling or try an alias",
+						],
 					);
 				}
 
@@ -76,6 +80,38 @@ export class ToolInfoTool extends BaseTool {
 						: "No documented operations.",
 				].join("\n");
 				return this.textResult(summary);
+			},
+			{
+				title: "Tool Metadata Inspector",
+				outputSchema: {
+					type: "object",
+					properties: {
+						tool: {
+							type: "object",
+							description: "Tool capability descriptor with detailed metadata",
+							properties: {
+								tool: { type: "string", description: "Tool identifier" },
+								summary: { type: "string", description: "Tool description" },
+								operations: {
+									type: "array",
+									description: "Available operations",
+								},
+								requiresApiKey: {
+									type: "boolean",
+									description: "Whether API key is required",
+								},
+								stageable: {
+									type: "boolean",
+									description: "Whether tool supports data staging",
+								},
+								tokenProfile: {
+									type: "object",
+									description: "Typical token usage estimates",
+								},
+							},
+						},
+					},
+				},
 			},
 		);
 	}
