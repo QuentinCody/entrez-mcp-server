@@ -68,6 +68,16 @@ const DataManagerParamsShape = {
 const DataManagerParamsSchema = z.object(DataManagerParamsShape);
 type DataManagerParams = z.infer<typeof DataManagerParamsSchema>;
 
+const DataManagerOutputSchema = z
+	.object({
+		success: z.boolean().optional(),
+		data_access_id: z.string().optional(),
+		schema: z.record(z.unknown()).optional(),
+		results: z.array(z.unknown()).optional(),
+		datasets: z.array(z.unknown()).optional(),
+	})
+	.passthrough();
+
 type ParsedStagingResult = ReturnType<IContentParser["parse"]>;
 
 export class DataManagerTool extends BaseTool {
@@ -214,32 +224,7 @@ export class DataManagerTool extends BaseTool {
 			},
 			{
 				title: "NCBI Data Staging & SQL Query Manager",
-				outputSchema: {
-					type: "object",
-					properties: {
-						success: {
-							type: "boolean",
-							description: "Whether the operation succeeded",
-						},
-						data_access_id: {
-							type: "string",
-							description:
-								"Unique identifier for the staged dataset (fetch_and_stage operation)",
-						},
-						schema: {
-							type: "object",
-							description: "Database schema information (schema operation)",
-						},
-						results: {
-							type: "array",
-							description: "Query results (query operation)",
-						},
-						datasets: {
-							type: "array",
-							description: "List of available datasets (list_datasets operation)",
-						},
-					},
-				},
+				outputSchema: DataManagerOutputSchema,
 			},
 		);
 	}

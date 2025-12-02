@@ -1,4 +1,14 @@
+import { z } from "zod";
 import { BaseTool } from "./base.js";
+
+const ApiKeyStatusOutputSchema = z
+	.object({
+		success: z.boolean().optional(),
+		hasKey: z.boolean(),
+		rateLimit: z.string(),
+		message: z.string(),
+	})
+	.passthrough();
 
 export class ApiKeyStatusTool extends BaseTool {
 	register(): void {
@@ -51,24 +61,7 @@ node test-rate-limits.js`;
 			},
 			{
 				title: "NCBI API Key Status Reporter",
-				outputSchema: {
-					type: "object",
-					properties: {
-						hasKey: {
-							type: "boolean",
-							description: "Whether an API key is configured",
-						},
-						rateLimit: {
-							type: "string",
-							description: "Current rate limit (requests per second)",
-						},
-						message: {
-							type: "string",
-							description: "Human-readable status message",
-						},
-					},
-					required: ["hasKey", "rateLimit", "message"],
-				},
+				outputSchema: ApiKeyStatusOutputSchema,
 			},
 		);
 	}

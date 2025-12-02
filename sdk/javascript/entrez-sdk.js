@@ -157,10 +157,19 @@ export class EntrezSDK {
 	}
 
 	_isErrorPayload(payload) {
-		if (!payload || !Array.isArray(payload.content)) {
+		if (!payload) {
 			return false;
 		}
-		return payload.content.some(
+		if (payload.isError || payload.error) {
+			return true;
+		}
+		const content = Array.isArray(payload.content)
+			? payload.content
+			: payload.structuredContent?.content;
+		if (!Array.isArray(content)) {
+			return false;
+		}
+		return content.some(
 			(block) =>
 				block &&
 				block.type === "text" &&
@@ -170,24 +179,38 @@ export class EntrezSDK {
 	}
 
 	_getPayloadErrorMessage(payload) {
-		if (!payload || !Array.isArray(payload.content)) {
+		if (!payload) {
 			return "Unknown error";
 		}
-		const errorBlock = payload.content.find(
-			(block) =>
-				block &&
-				block.type === "text" &&
-				typeof block.text === "string" &&
-				block.text.trim().startsWith("❌"),
-		);
-		if (errorBlock && typeof errorBlock.text === "string") {
-			return errorBlock.text.trim();
+		if (typeof payload.error === "string") {
+			return payload.error;
 		}
-		const combined = payload.content
-			.map((block) => (typeof block?.text === "string" ? block.text : ""))
-			.filter(Boolean)
-			.join(" ");
-		return combined || "Unknown error";
+		if (payload.error && typeof payload.error.message === "string") {
+			return payload.error.message;
+		}
+		const content = Array.isArray(payload.content)
+			? payload.content
+			: payload.structuredContent?.content;
+		if (Array.isArray(content)) {
+			const errorBlock = content.find(
+				(block) =>
+					block &&
+					block.type === "text" &&
+					typeof block.text === "string" &&
+					block.text.trim().startsWith("❌"),
+				);
+			if (errorBlock && typeof errorBlock.text === "string") {
+				return errorBlock.text.trim();
+			}
+			const combined = content
+				.map((block) => (typeof block?.text === "string" ? block.text : ""))
+				.filter(Boolean)
+				.join(" ");
+			if (combined) {
+				return combined;
+			}
+		}
+		return "Unknown error";
 	}
 
 	async _initializeSession() {

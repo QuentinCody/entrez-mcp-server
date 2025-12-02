@@ -391,23 +391,11 @@ export class EntrezQueryTool extends BaseTool {
 			},
 			{
 				title: "NCBI Entrez E-utilities Gateway",
-				outputSchema: {
-					type: "object",
-					properties: {
-						success: {
-							type: "boolean",
-							description: "Whether the operation succeeded",
-						},
-						data: {
-							type: "object",
-							description: "Response data from NCBI (structure varies by operation)",
-						},
-						metadata: {
-							type: "object",
-							description: "Additional metadata about the response",
-						},
-					},
-				},
+				outputSchema: z
+					.object({
+						success: z.boolean().optional(),
+					})
+					.passthrough(),
 			},
 		);
 	}
@@ -812,7 +800,7 @@ export class EntrezQueryTool extends BaseTool {
 		);
 		const estimatedTokens = ResponseFormatter.estimateTokens(formattedData);
 
-		return this.textResult(
+		return this.textStructuredResult(
 			`**E-utilities Summary** (${estimatedTokens} tokens, detail: ${detailPrefs.detailLevel})\n\n${formattedData}`,
 		);
 	}
@@ -848,7 +836,7 @@ export class EntrezQueryTool extends BaseTool {
 			return this.stageAndReturnInfo(data, database ?? "");
 		}
 
-		return this.textResult(
+		return this.textStructuredResult(
 			`**Database Info** (${stagingInfo.estimatedTokens} tokens):\n\n${this.formatResponseData(data)}`,
 		);
 	}
@@ -902,7 +890,7 @@ export class EntrezQueryTool extends BaseTool {
 		);
 		const estimatedTokens = ResponseFormatter.estimateTokens(formattedData);
 
-		return this.textResult(
+		return this.textStructuredResult(
 			`**E-utilities Fetch Results** (${estimatedTokens} tokens, detail: ${detailPrefs.detailLevel})\n\n${formattedData}`,
 		);
 	}
@@ -929,7 +917,7 @@ export class EntrezQueryTool extends BaseTool {
 			linkParams.get("retmode") || undefined,
 		);
 
-		return this.textResult(
+		return this.textStructuredResult(
 			`**E-utilities Link Results**:\n\n${this.formatResponseData(data)}`,
 		);
 	}
@@ -948,27 +936,76 @@ export class EntrezQueryTool extends BaseTool {
 		const response = await fetch(url);
 		const data = await this.parseResponse(response, "EPost");
 
-		return this.textResult(
+		return this.textStructuredResult(
 			`**E-utilities Post Results**:\n\n${this.formatResponseData(data)}`,
 		);
 	}
 
 	private async handleGlobalQuery(params: EntrezQueryParams) {
-		const { term } = params;
+		const term = params.term?.trim();
+		if (!term) {
+			return this.errorResult("global_query requires 'term' parameter", [
+				"Provide a search expression (e.g., { operation: 'global_query', term: 'cancer' })",
+				"EGQuery summarizes term coverage across Entrez databases",
+			]);
+		}
 
 		const gqueryParams = new URLSearchParams({
-			term: term ?? "",
+			term,
 			tool: this.context.defaultTool,
 			email: this.context.defaultEmail,
 		});
 
 		const url = this.buildUrl("egquery.fcgi", gqueryParams);
-		const response = await fetch(url);
-		const data = await this.parseResponse(response, "EGQuery");
 
-		return this.textResult(
-			`**Global Query Results**:\n\n${this.formatResponseData(data)}`,
-		);
+		try {
+			const data = await this.fetchWithRetry(url, "EGQuery");
+			return this.structuredResult(
+				{
+					success: true,
+					source: "egquery",
+					query: term,
+					data,
+				},
+				`**Global Query Results**:\n\n${this.formatResponseData(data)}`,
+			);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			return this.errorResult(
+				`EGQuery request failed: ${message}`,
+				[
+					"EGQuery depends on NCBI's backend and occasionally returns internal errors or redirects to new hosts.",
+					"Retry with the same term after a few seconds or try a shorter query.",
+				],
+			);
+		}
+	}
+
+	private async fetchWithRetry(url: string, label: string, retries = 3) {
+		let lastError: Error | null = null;
+		for (let attempt = 1; attempt <= retries; attempt++) {
+			try {
+				const response = await fetch(url, { redirect: "follow" });
+				if (!response.ok) {
+					const errorText = await response.text().catch(() => "");
+					const details = errorText ? ` Remote response: ${errorText}` : "";
+					throw new Error(
+						`${label} request failed (${response.status} ${response.statusText}).${details}`,
+					);
+				}
+				return await response.text();
+			} catch (error) {
+				lastError =
+					error instanceof Error ? error : new Error(String(error));
+				if (attempt < retries) {
+					await new Promise((resolve) =>
+						setTimeout(resolve, attempt * 500),
+					);
+					continue;
+				}
+			}
+		}
+		throw lastError;
 	}
 
 	private async handleSpell(params: EntrezQueryParams) {
@@ -1029,7 +1066,7 @@ export class EntrezQueryTool extends BaseTool {
 					suggestions += `**Alternative**: ${spelledQueryMatch[1]}\n`;
 				}
 
-				return this.textResult(
+				return this.textStructuredResult(
 					`**Spelling Suggestions for "${term}"**:\n\n${suggestions}`,
 				);
 			}
@@ -1037,16 +1074,16 @@ export class EntrezQueryTool extends BaseTool {
 			// If no structured suggestions found, check for any text content
 			const cleanText = rawText.replace(/<[^>]*>/g, "").trim();
 			if (cleanText && cleanText !== term) {
-				return this.textResult(
+				return this.textStructuredResult(
 					`**Spelling Suggestions for "${term}"**:\n\n${cleanText}`,
 				);
 			}
 
-			return this.textResult(
+			return this.textStructuredResult(
 				`**No Spelling Corrections Needed**\n\nThe term "${term}" appears to be correctly spelled.`,
 			);
 		} catch (error) {
-			return this.textResult(
+			return this.textStructuredResult(
 				`**Spelling Check Error**\n\nService temporarily unavailable: ${error instanceof Error ? error.message : String(error)}\n\n**Original term**: ${term}\n\n💡 **Tip**: Try searching for "${term}" directly.`,
 			);
 		}
@@ -1075,15 +1112,19 @@ export class EntrezQueryTool extends BaseTool {
 		};
 	}
 
+	private textStructuredResult(message: string) {
+		return this.structuredResult({ success: true }, message);
+	}
+
 	private async stageAndReturnSummary(_data: unknown, ids: string) {
 		// Integrate with existing staging system
-		return this.textResult(
+		return this.textStructuredResult(
 			`✅ **ESummary Data Successfully Staged**\n\n🗃️ Use data staging tools for complex queries on ${ids.split(",").length} records.`,
 		);
 	}
 
 	private async stageAndReturnInfo(_data: unknown, database: string) {
-		return this.textResult(
+		return this.textStructuredResult(
 			`✅ **EInfo Data Successfully Staged**\n\n📊 Database metadata for '${database}' available for SQL queries.`,
 		);
 	}
@@ -1094,7 +1135,7 @@ export class EntrezQueryTool extends BaseTool {
 		ids: string,
 		_rettype?: string,
 	) {
-		return this.textResult(
+		return this.textStructuredResult(
 			`✅ **EFetch Data Successfully Staged**\n\n📋 ${ids.split(",").length} records from '${database}' ready for analysis.`,
 		);
 	}

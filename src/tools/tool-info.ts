@@ -4,6 +4,7 @@ import {
 	type ToolCapabilityDescriptor,
 	type ToolContext,
 } from "./base.js";
+import { toolInfoOutputSchema } from "./tool-schemas.js";
 
 const ToolInfoParamsShape = {
 	tool: z.string().describe("Tool identifier or alias you want to inspect"),
@@ -69,49 +70,24 @@ export class ToolInfoTool extends BaseTool {
 					);
 				}
 
-				const operations = (match.operations ?? [])
-					.map((op) => op.name)
-					.join(", ");
-				const summary = [
-					`**${match.tool}**`,
-					match.summary,
-					operations
-						? `Operations: ${operations}`
-						: "No documented operations.",
-				].join("\n");
-				return this.textResult(summary);
-			},
+		const operations = (match.operations ?? [])
+			.map((op) => op.name)
+			.join(", ");
+		const summary = [
+			`**${match.tool}**`,
+			match.summary,
+			operations
+				? `Operations: ${operations}`
+				: "No documented operations.",
+		].join("\n");
+		const toolPayload = params.include_metadata
+			? match
+			: { ...match, metadata: undefined };
+		return this.structuredResult({ tool: toolPayload }, summary);
+	},
 			{
 				title: "Tool Metadata Inspector",
-				outputSchema: {
-					type: "object",
-					properties: {
-						tool: {
-							type: "object",
-							description: "Tool capability descriptor with detailed metadata",
-							properties: {
-								tool: { type: "string", description: "Tool identifier" },
-								summary: { type: "string", description: "Tool description" },
-								operations: {
-									type: "array",
-									description: "Available operations",
-								},
-								requiresApiKey: {
-									type: "boolean",
-									description: "Whether API key is required",
-								},
-								stageable: {
-									type: "boolean",
-									description: "Whether tool supports data staging",
-								},
-								tokenProfile: {
-									type: "object",
-									description: "Typical token usage estimates",
-								},
-							},
-						},
-					},
-				},
+				outputSchema: toolInfoOutputSchema,
 			},
 		);
 	}

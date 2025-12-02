@@ -61,7 +61,6 @@ export class PMCIdConverterTool extends BaseTool {
 					const url = `https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/?${params}`;
 					const response = await fetch(url);
 					const data = await this.parseResponse(response, "PMC ID Converter");
-
 					return {
 						content: [
 							{
@@ -71,13 +70,12 @@ export class PMCIdConverterTool extends BaseTool {
 						],
 					};
 				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
 					return {
 						content: [
-							{
-								type: "text",
-								text: `Error in PMC ID Converter: ${error instanceof Error ? error.message : String(error)}`,
-							},
+							this.textContent(`Error in PMC ID Converter: ${message}`),
 						],
+						isError: true,
 					};
 				}
 			},
@@ -114,20 +112,30 @@ export class PMCOpenAccessServiceTool extends BaseTool {
 						},
 					});
 
-					const data = await this.parseResponse(response, "PMC OA Service");
+					const data = await response.text();
 
-					// Check if the article is not available in OA
+					if (!response.ok) {
+						return {
+							content: [
+								this.textContent(
+									`PMC Open Access Service request failed: ${response.status} ${response.statusText}`,
+								),
+							],
+							isError: true,
+						};
+					}
+
 					if (
 						data.includes("cannotDisseminateFormat") ||
 						data.includes("not available")
 					) {
 						return {
 							content: [
-								{
-									type: "text",
-									text: `PMC Open Access Service Results:\n\nArticle ${id} is not available through the PMC Open Access Service. This may be because:\n1. The article is not in the PMC Open Access Subset\n2. The article has access restrictions\n3. The article is available only to PMC subscribers\n\nResponse: ${data}`,
-								},
+								this.textContent(
+									`PMC Open Access Service Results: Article ${id} is not available in the Open Access subset.`,
+								),
 							],
+							isError: true,
 						};
 					}
 
@@ -140,13 +148,12 @@ export class PMCOpenAccessServiceTool extends BaseTool {
 						],
 					};
 				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
 					return {
 						content: [
-							{
-								type: "text",
-								text: `Error in PMC Open Access Service: ${error instanceof Error ? error.message : String(error)}`,
-							},
+							this.textContent(`Error in PMC Open Access Service: ${message}`),
 						],
+						isError: true,
 					};
 				}
 			},
@@ -181,14 +188,18 @@ export class PMCCitationExporterTool extends BaseTool {
 						},
 					});
 
-					if (!response.ok) {
-						const errorText = await response.text();
-						throw new Error(
-							`PMC Citation Exporter request failed: ${response.status} ${response.statusText}. Response: ${errorText}`,
-						);
-					}
-
 					const data = await response.text();
+
+					if (!response.ok) {
+						return {
+							content: [
+								this.textContent(
+									`PMC Citation Exporter request failed: ${response.status} ${response.statusText}`,
+								),
+							],
+							isError: true,
+						};
+					}
 
 					return {
 						content: [
@@ -199,13 +210,14 @@ export class PMCCitationExporterTool extends BaseTool {
 						],
 					};
 				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
 					return {
 						content: [
-							{
-								type: "text",
-								text: `Error in PMC Citation Exporter: ${error instanceof Error ? error.message : String(error)}`,
-							},
+							this.textContent(
+								`Error in PMC Citation Exporter: ${message}`,
+							),
 						],
+						isError: true,
 					};
 				}
 			},

@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 
 export interface ParameterDescriptor {
 	name: string;
@@ -339,11 +340,8 @@ export abstract class BaseTool {
 	 * Helper to create a proper empty input schema per MCP spec
 	 * For tools with no parameters, use { type: "object", additionalProperties: false }
 	 */
-	protected emptySchema(): Record<string, unknown> {
-		return {
-			type: "object",
-			additionalProperties: false,
-		};
+	protected emptySchema() {
+		return z.object({});
 	}
 
 	/**

@@ -91,6 +91,15 @@ const ExternalParamsShape = {
 const ExternalParamsSchema = z.object(ExternalParamsShape);
 type ExternalParams = z.infer<typeof ExternalParamsSchema>;
 
+const ExternalApisOutputSchema = z
+	.object({
+		success: z.boolean().optional(),
+		source: z.string(),
+		data: z.unknown(),
+		metadata: z.record(z.unknown()).optional(),
+	})
+	.passthrough();
+
 export class ExternalAPIsTool extends BaseTool {
 	register(): void {
 		this.registerTool(
@@ -157,24 +166,7 @@ export class ExternalAPIsTool extends BaseTool {
 			},
 			{
 				title: "External APIs Gateway (PubChem & PMC)",
-				outputSchema: {
-					type: "object",
-					properties: {
-						success: {
-							type: "boolean",
-							description: "Whether the operation succeeded",
-						},
-						data: {
-							type: "object",
-							description:
-								"Response data from external API (structure varies by service)",
-						},
-						source: {
-							type: "string",
-							description: "Source service (pubchem or pmc)",
-						},
-					},
-				},
+				outputSchema: ExternalApisOutputSchema,
 			},
 		);
 	}
@@ -419,9 +411,18 @@ export class ExternalAPIsTool extends BaseTool {
 		const summary = this.extractPubchemSummary(data);
 		const dataSize =
 			typeof data === "string" ? data.length : JSON.stringify(data).length;
+		const summaryText = `🧪 **PubChem Compound Data** (${(dataSize / 1024).toFixed(1)} KB)\n\n${summary}\n\n**Full Data:**\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data, null, 2)}\n\`\`\``;
 
-		return this.textResult(
-			`🧪 **PubChem Compound Data** (${(dataSize / 1024).toFixed(1)} KB)\n\n${summary}\n\n**Full Data:**\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data, null, 2)}\n\`\`\``,
+		return this.externalSuccess(
+			"pubchem",
+			summaryText,
+			data,
+			{
+				operation: "compound",
+				identifier,
+				identifier_type,
+				output_format,
+			},
 		);
 	}
 
@@ -440,8 +441,17 @@ export class ExternalAPIsTool extends BaseTool {
 		const response = await fetch(url);
 		const data = await this.parseResponse(response, "PubChem Substance");
 
-		return this.textResult(
-			`🧪 **PubChem Substance Data**\n\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data, null, 2)}\n\`\`\``,
+		const summaryText = `🧪 **PubChem Substance Data**\n\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data, null, 2)}\n\`\`\``;
+		return this.externalSuccess(
+			"pubchem",
+			summaryText,
+			data,
+			{
+				operation: "substance",
+				identifier,
+				identifier_type,
+				output_format,
+			},
 		);
 	}
 
@@ -460,8 +470,17 @@ export class ExternalAPIsTool extends BaseTool {
 		const response = await fetch(url);
 		const data = await this.parseResponse(response, "PubChem BioAssay");
 
-		return this.textResult(
-			`🔬 **PubChem BioAssay Data**\n\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data, null, 2)}\n\`\`\``,
+		const summaryText = `🔬 **PubChem BioAssay Data**\n\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data, null, 2)}\n\`\`\``;
+		return this.externalSuccess(
+			"pubchem",
+			summaryText,
+			data,
+			{
+				operation: "bioassay",
+				identifier,
+				identifier_type,
+				output_format,
+			},
 		);
 	}
 
@@ -493,8 +512,18 @@ export class ExternalAPIsTool extends BaseTool {
 
 		const data = await this.parseResponse(response, "PubChem Structure Search");
 
-		return this.textResult(
-			`🔍 **PubChem Structure Search Results**\n\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data, null, 2)}\n\`\`\``,
+		const summaryText = `🔍 **PubChem Structure Search Results**\n\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data, null, 2)}\n\`\`\``;
+		return this.externalSuccess(
+			"pubchem",
+			summaryText,
+			data,
+			{
+				operation: "structure_search",
+				structure_type,
+				search_type,
+				threshold,
+				max_records,
+			},
 		);
 	}
 
@@ -532,8 +561,17 @@ export class ExternalAPIsTool extends BaseTool {
 		const response = await fetch(url);
 		const data = await this.parseResponse(response, "PMC ID Converter");
 
-		return this.textResult(
-			`🔄 **PMC ID Conversion Results**\n\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data, null, 2)}\n\`\`\``,
+		const summaryText = `🔄 **PMC ID Conversion Results**\n\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data, null, 2)}\n\`\`\``;
+		return this.externalSuccess(
+			"pmc",
+			summaryText,
+			data,
+			{
+				operation: "id_convert",
+				ids,
+				output_format,
+				versions,
+			},
 		);
 	}
 
@@ -554,8 +592,16 @@ export class ExternalAPIsTool extends BaseTool {
 		const response = await fetch(url);
 		const data = await this.parseResponse(response, "PMC OA Service");
 
-		return this.textResult(
-			`📖 **PMC Open Access Info**\n\n\`\`\`xml\n${typeof data === "string" ? data : JSON.stringify(data)}\n\`\`\``,
+		const summaryText = `📖 **PMC Open Access Info**\n\n\`\`\`xml\n${typeof data === "string" ? data : JSON.stringify(data)}\n\`\`\``;
+		return this.externalSuccess(
+			"pmc",
+			summaryText,
+			data,
+			{
+				operation: "oa_service",
+				id,
+				output_format,
+			},
 		);
 	}
 
@@ -576,8 +622,16 @@ export class ExternalAPIsTool extends BaseTool {
 		const response = await fetch(url);
 		const data = await this.parseResponse(response, "PMC Citation Export");
 
-		return this.textResult(
-			`📝 **Citation Export (${citation_format.toUpperCase()})**\n\n\`\`\`\n${typeof data === "string" ? data : JSON.stringify(data)}\n\`\`\``,
+		const summaryText = `📝 **Citation Export (${citation_format.toUpperCase()})**\n\n\`\`\`\n${typeof data === "string" ? data : JSON.stringify(data)}\n\`\`\``;
+		return this.externalSuccess(
+			"pmc",
+			summaryText,
+			data,
+			{
+				operation: "citation_export",
+				id,
+				citation_format,
+			},
 		);
 	}
 
@@ -629,5 +683,22 @@ export class ExternalAPIsTool extends BaseTool {
 		} catch (_error) {
 			return "**Summary:** Error parsing compound data\n";
 		}
+	}
+
+	private externalSuccess(
+		service: string,
+		summary: string,
+		data: unknown,
+		metadata?: Record<string, unknown>,
+	) {
+		return this.structuredResult(
+			{
+				success: true,
+				source: service,
+				data,
+				metadata,
+			},
+			summary,
+		);
 	}
 }

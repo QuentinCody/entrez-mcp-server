@@ -1,3 +1,7 @@
+import { ensureZodSafeParseAsync } from "./lib/zod-compat.js";
+
+ensureZodSafeParseAsync();
+
 import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -6,7 +10,6 @@ import { JsonToSqlDO } from "./do.js";
 import { getParserFor } from "./lib/parsers.js";
 import { ToolRegistry } from "./tools/index.js";
 import type { ToolContext } from "./tools/index.js";
-
 // Define our MCP agent for NCBI Entrez E-utilities
 export class EntrezMCP extends McpAgent implements ToolContext {
 	server = new McpServer(
@@ -898,27 +901,6 @@ export default {
 				return response;
 			}
 
-			// Explicitly reject legacy SSE transport to keep all clients on Streamable HTTP
-			if (url.pathname === "/sse" || url.pathname.startsWith("/sse/")) {
-				return new Response(
-					`SSE transport is no longer supported. Please connect using the Streamable HTTP endpoint at /mcp.`,
-					{
-						status: 410,
-						headers: {
-							"Content-Type": "text/plain",
-							"Access-Control-Allow-Origin": "*",
-						},
-					},
-				);
-			}
-
-			// Default response with transport information
-			const wantsSse = request.headers
-				.get("Accept")
-				?.includes("text/event-stream");
-			const transport = wantsSse
-				? "sse (unsupported — use /mcp instead)"
-				: "streamable-http";
 			return new Response(
 				`NCBI Entrez MCP Server
 ================================
@@ -934,7 +916,6 @@ Available Endpoints:
 - /mcp (Streamable HTTP transport)
 
 Protocol Version: 2025-11-25
-Detected Transport: ${transport}
 
 For usage instructions, connect with an MCP client.`,
 				{

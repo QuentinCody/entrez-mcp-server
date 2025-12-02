@@ -5,6 +5,7 @@ import {
 	type ToolOperationDescriptor,
 	type ToolContext,
 } from "./base.js";
+import { capabilitiesOutputSchema } from "./tool-schemas.js";
 
 type DescribeFn = () => ToolCapabilityDescriptor[];
 const CODEMODE_TIP =
@@ -70,40 +71,7 @@ export class CapabilitiesTool extends BaseTool {
 			},
 			{
 				title: "Tool Capabilities Inspector",
-				outputSchema: {
-					type: "object",
-					properties: {
-						tools: {
-							type: "array",
-							description: "Array of tool capability descriptors",
-							items: {
-								type: "object",
-								properties: {
-									tool: {
-										type: "string",
-										description: "Tool identifier",
-									},
-									summary: {
-										type: "string",
-										description: "Brief description of the tool",
-									},
-									operations: {
-										type: "array",
-										description: "Available operations",
-									},
-									requiresApiKey: {
-										type: "boolean",
-										description: "Whether API key is required",
-									},
-									stageable: {
-										type: "boolean",
-										description: "Whether tool supports data staging",
-									},
-								},
-							},
-						},
-					},
-				},
+				outputSchema: capabilitiesOutputSchema,
 			},
 		);
 	}
@@ -121,6 +89,7 @@ export class CapabilitiesTool extends BaseTool {
 	}
 
 	private respondSummary(descriptors: ToolCapabilityDescriptor[]) {
+		const sanitized = this.sanitizeCapabilities(descriptors);
 		const lines = descriptors
 			.map((cap) => {
 				const aliasList = Array.isArray(
@@ -136,17 +105,23 @@ export class CapabilitiesTool extends BaseTool {
 					aliasList && aliasList.length > 0
 						? ` (aliases: ${aliasList.join(", ")})`
 						: "";
-				return `• ${cap.tool}${aliasSuffix}: ${summary}${operations ? ` — operations: ${operations}` : ""}`;
+				return `• ${cap.tool}${aliasSuffix}: ${summary}${
+					operations ? ` — operations: ${operations}` : ""
+				}`;
 			})
 			.join("\n");
 
-		return this.textResult(`**Registered Tools**\n${lines}${CODEMODE_TIP}`);
+		return this.structuredResult(
+			{ tools: sanitized },
+			`**Registered Tools**\n${lines}${CODEMODE_TIP}`,
+		);
 	}
 
 	private respondDetailed(
 		descriptors: ToolCapabilityDescriptor[],
 		includeMetadata?: boolean,
 	) {
+		const sanitized = this.sanitizeCapabilities(descriptors, includeMetadata);
 		const sections = descriptors
 			.map((cap) => {
 				const header = `### ${cap.tool}\n${cap.summary}`;
@@ -182,7 +157,8 @@ export class CapabilitiesTool extends BaseTool {
 			})
 			.join("\n\n---\n\n");
 
-		return this.textResult(
+		return this.structuredResult(
+			{ tools: sanitized },
 			`**Tool Capability Guide**\n\n${sections}${CODEMODE_TIP}`,
 		);
 	}
@@ -199,6 +175,17 @@ export class CapabilitiesTool extends BaseTool {
 		const payload = { tools: sanitized };
 		const tipMessage = `Structured tool metadata available (JSON).${CODEMODE_TIP}`;
 		return this.structuredResult(payload, tipMessage);
+	}
+
+	private sanitizeCapabilities(
+		descriptors: ToolCapabilityDescriptor[],
+		includeMetadata?: boolean,
+	) {
+		return descriptors.map((cap) => {
+			if (includeMetadata) return cap;
+			const { metadata: _metadata, ...rest } = cap;
+			return rest;
+		});
 	}
 
 	private formatOperation(operation: ToolOperationDescriptor): string {
