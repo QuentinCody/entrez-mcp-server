@@ -186,24 +186,24 @@ export class DataManagerTool extends BaseTool {
 					const errorMessage =
 						error instanceof Error ? error.message : String(error);
 
-					// Build contextual help based on operation
+					// Build contextual help based on operation (Code Mode friendly - no emojis)
 					const contextualHelp: string[] = [];
 
 					if (params.operation) {
 						switch (params.operation) {
 							case "fetch_and_stage":
 								contextualHelp.push(
-									"🗃️ Staging Tips: Use UIDs from successful search results and specify a valid database",
+									"Staging Tips: Use UIDs from successful search results and specify a valid database",
 								);
 								break;
 							case "query":
 								contextualHelp.push(
-									"🔍 Query Tips: Use the data_access_id from fetch_and_stage, then provide SQL or use smart_summary=true",
+									"Query Tips: Use the data_access_id from fetch_and_stage, then provide SQL or use smart_summary=true",
 								);
 								break;
 							case "schema":
 								contextualHelp.push(
-									"📋 Schema Tips: Use the data_access_id from a successful fetch_and_stage operation",
+									"Schema Tips: Use the data_access_id from a successful fetch_and_stage operation",
 								);
 								break;
 						}
@@ -211,8 +211,8 @@ export class DataManagerTool extends BaseTool {
 
 					// Add general guidance
 					contextualHelp.push(
-						"💡 General Tips: Always use data_access_id from successful staging operations",
-						"💡 Try fetch_and_stage first before querying data",
+						"General Tips: Always use data_access_id from successful staging operations",
+						"Try fetch_and_stage first before querying data",
 					);
 
 					// Return error with context per MCP spec

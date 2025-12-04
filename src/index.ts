@@ -434,44 +434,10 @@ export class EntrezMCP extends McpAgent implements ToolContext {
 			};
 		}
 
-		// Database-specific validations
-		if (database === "pubmed") {
-			// Check for valid PubMed field names in brackets
-			const fieldMatches = trimmed.match(/\[([^\]]+)\]/g);
-			if (fieldMatches) {
-				const validPubMedFields = [
-					"Title",
-					"Author",
-					"Journal",
-					"MeSH",
-					"Affiliation",
-					"Abstract",
-					"Date",
-					"UID",
-					"PMID",
-					"DOI",
-					"Language",
-					"Publication Type",
-					"All Fields",
-				];
-				const invalidFields = fieldMatches
-					.map((field) => field.slice(1, -1))
-					.filter(
-						(field) =>
-							!validPubMedFields.some(
-								(valid) => valid.toLowerCase() === field.toLowerCase(),
-							),
-					);
-
-				if (invalidFields.length > 0) {
-					return {
-						valid: false,
-						message: `Invalid PubMed field(s): ${invalidFields.join(", ")}`,
-						suggestion: `Valid fields include: ${validPubMedFields.slice(0, 5).join(", ")}, etc.`,
-					};
-				}
-			}
-		}
+		// Note: Field tag validation removed - NCBI E-utilities already validates
+		// field tags and returns proper errors. Client-side validation was causing
+		// false positives by rejecting valid PubMed abbreviations like [tiab], [dp], etc.
+		// See: https://pubmed.ncbi.nlm.nih.gov/help/#search-tags
 
 		return { valid: true };
 	}

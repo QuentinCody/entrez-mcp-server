@@ -10,9 +10,87 @@ export interface FormattingOptions {
 	compactMode?: boolean;
 }
 
+export interface SearchStructuredResult {
+	count: number;
+	retmax: number;
+	retstart: number;
+	idlist: string[];
+	queryTranslation?: string;
+	webEnv?: string;
+	queryKey?: string;
+	warnings?: string[];
+	suggestions?: string[];
+}
+
 export class ResponseFormatter {
 	private static readonly DEFAULT_MAX_TOKENS = 500;
 	private static readonly COMPACT_MAX_TOKENS = 200;
+
+	/**
+	 * Format ESearch results as structured JSON (Code Mode friendly)
+	 * Returns structured data suitable for programmatic use
+	 */
+	static formatSearchStructured(data: any): SearchStructuredResult {
+		if (!data?.esearchresult) {
+			return {
+				count: 0,
+				retmax: 0,
+				retstart: 0,
+				idlist: [],
+				warnings: ["Invalid search result format"],
+			};
+		}
+
+		const result = data.esearchresult;
+		const count = Number(result.count ?? 0);
+		const retmax = Number(result.retmax ?? 0);
+		const retstart = Number(result.retstart ?? 0);
+		const idlist = Array.isArray(result.idlist) ? result.idlist : [];
+
+		const structured: SearchStructuredResult = {
+			count,
+			retmax,
+			retstart,
+			idlist,
+		};
+
+		// Add optional fields if present
+		if (result.querytranslation) {
+			structured.queryTranslation = result.querytranslation;
+		}
+		if (result.webenv) {
+			structured.webEnv = result.webenv;
+		}
+		if (result.querykey) {
+			structured.queryKey = result.querykey;
+		}
+
+		// Add warnings based on result characteristics
+		const warnings: string[] = [];
+		if (count === 0) {
+			warnings.push("No results found; try broader keywords or MeSH terms");
+		} else if (count > 10000) {
+			warnings.push("Large result set; consider adding filters or narrowing the query");
+		}
+		if (warnings.length > 0) {
+			structured.warnings = warnings;
+		}
+
+		// Add suggestions for next steps
+		const suggestions: string[] = [];
+		if (count > 0) {
+			suggestions.push("Use summary operation for article metadata");
+			suggestions.push("Use fetch operation with rettype='abstract' for full abstracts");
+			if (retmax < count) {
+				suggestions.push(`Increase retmax (currently ${retmax}) to retrieve more results`);
+			}
+		}
+		if (suggestions.length > 0) {
+			structured.suggestions = suggestions;
+		}
+
+		return structured;
+	}
 
 	/**
 	 * Format ESummary responses efficiently based on intended use and database

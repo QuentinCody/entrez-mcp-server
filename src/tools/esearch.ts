@@ -7,7 +7,8 @@ export class ESearchTool extends BaseTool {
 			"esearch",
 			'Search Entrez databases with text queries to find matching UIDs. Core Entrez function that converts queries into UID lists for use with other E-utilities. Supports Boolean operators (AND, OR, NOT) and field-specific searches.\n\n🔍 **Common PubMed Fields**: [Title], [Author], [Journal], [MeSH], [Abstract], [Date], [DOI]\n🧬 **Sequence DB Fields**: [Organism], [Gene], [Protein], [Accession]\n🔬 **Search Examples**: \n• "cancer[Title] AND therapy[Abstract]" - Title contains cancer, abstract contains therapy\n• "Smith J[Author]" - Articles by author Smith J\n• "2023[Date]" - Articles from 2023\n• "Nature[Journal]" - Articles from Nature journal',
 			{
-				db: z.string().default("pubmed").describe("Database to search"),
+				database: z.string().default("pubmed").describe("Database to search"),
+				db: z.string().optional().describe("Database to search (deprecated, use 'database')"),
 				term: z.string().describe("Entrez text query"),
 				retstart: z.number().optional().describe("Starting position (0-based)"),
 				retmax: z
@@ -41,6 +42,7 @@ export class ESearchTool extends BaseTool {
 					.describe("Intended use case for optimal format selection"),
 			},
 			async ({
+				database,
 				db,
 				term,
 				retstart,
@@ -56,7 +58,8 @@ export class ESearchTool extends BaseTool {
 				intended_use,
 			}) => {
 				try {
-					const dbName = db || "pubmed";
+					// Support both 'database' (preferred) and 'db' (deprecated) for backward compatibility
+					const dbName = database || db || "pubmed";
 
 					// Enhanced query validation
 					const queryValidation = this.context.validateQuery(term, dbName);

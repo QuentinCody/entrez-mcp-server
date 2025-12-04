@@ -178,6 +178,15 @@ const EntrezQueryParamsShape = {
 		.optional()
 		.describe("Search term or query (for search, global_query, spell)"),
 
+	// Response format control (Code Mode compatibility)
+	format: z
+		.enum(["structured", "human"])
+		.optional()
+		.default("structured")
+		.describe(
+			"Response format: 'structured' returns JSON (default, Code Mode friendly), 'human' returns emoji-formatted text",
+		),
+
 	// Search-specific
 	retstart: z.number().optional().describe("Starting position (search only)"),
 	retmax: z
@@ -353,29 +362,29 @@ export class EntrezQueryTool extends BaseTool {
 					const errorMessage =
 						error instanceof Error ? error.message : String(error);
 
-					// Build contextual help based on operation
+					// Build contextual help based on operation (Code Mode friendly - no emojis)
 					const contextualHelp: string[] = [];
 
 					if (params.operation) {
 						switch (params.operation) {
 							case "search":
 								contextualHelp.push(
-									'🔍 Search Tips: Use keywords like "cancer treatment" or field tags like "author[AU]"',
+									'Search Tips: Use keywords like "cancer treatment" or field tags like "author[AU]"',
 								);
 								break;
 							case "summary":
 							case "link":
 								contextualHelp.push(
-									'🆔 ID Format: Use comma-separated numeric UIDs (e.g., "12345,67890")',
+									'ID Format: Use comma-separated numeric UIDs (e.g., "12345,67890")',
 								);
 								break;
 							case "fetch":
 								contextualHelp.push(
-									'🆔 ID Format: Use comma-separated numeric UIDs (e.g., "12345,67890")',
+									'ID Format: Use comma-separated numeric UIDs (e.g., "12345,67890")',
 								);
 								if (errorMessage.includes("rettype")) {
 									contextualHelp.push(
-										'📄 Format Options: Use rettype="abstract" for PubMed or "fasta" for sequences',
+										'Format Options: Use rettype="abstract" for PubMed or "fasta" for sequences',
 									);
 								}
 								break;
@@ -610,6 +619,7 @@ export class EntrezQueryTool extends BaseTool {
 			maxdate,
 			retmode,
 			intended_use,
+			format,
 		} = params;
 
 		// Enhanced query validation
@@ -617,7 +627,7 @@ export class EntrezQueryTool extends BaseTool {
 		if (!queryValidation.valid) {
 			const errorMsg = queryValidation.message;
 			const suggestion = queryValidation.suggestion
-				? `\n💡 Suggestion: ${queryValidation.suggestion}`
+				? `\nSuggestion: ${queryValidation.suggestion}`
 				: "";
 			throw new Error(`${errorMsg}${suggestion}`);
 		}
@@ -662,10 +672,10 @@ export class EntrezQueryTool extends BaseTool {
 		);
 		const suggestionText =
 			suggestions.length > 0
-				? `\n\n💡 **Query Optimization Tips**:\n${suggestions.map((s) => `• ${s}`).join("\n")}`
+				? `\n\nQuery Optimization Tips:\n${suggestions.map((s) => `• ${s}`).join("\n")}`
 				: "";
 
-		// Format response more efficiently
+		// Format response based on format parameter (Code Mode compatibility)
 		let formattedData: string;
 		if (typeof data === "object" && data.esearchresult) {
 			const result = data.esearchresult;
@@ -674,6 +684,32 @@ export class EntrezQueryTool extends BaseTool {
 			const ids = Array.isArray(result.idlist) ? result.idlist : [];
 			const previewIds = ids.length > 0 ? ids.slice(0, 10) : [];
 
+			// Import formatter for structured response
+			const { ResponseFormatter } = await import(
+				"../lib/response-formatter.js"
+			);
+
+			// Return structured JSON by default (Code Mode friendly)
+			if (format === "structured" || format === undefined) {
+				const structuredResult = ResponseFormatter.formatSearchStructured(data);
+
+				// Build structured payload with all query information
+				const payload = {
+					success: true,
+					operation: "search",
+					database,
+					query: queryTerm,
+					...structuredResult, // Include count, retmax, retstart, idlist, etc.
+					query_suggestions: suggestions.length > 0 ? suggestions : undefined,
+				};
+
+				// Create a minimal text summary for human readability (but structured data is primary)
+				const summaryText = `Search completed: ${structuredResult.count} results found, ${structuredResult.idlist.length} IDs returned`;
+
+				return this.structuredResult(payload, summaryText);
+			}
+
+			// Human-readable format with emojis (backward compatibility)
 			const messages: string[] = [];
 			const contextNotes: string[] = [];
 
