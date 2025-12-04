@@ -838,6 +838,14 @@ export class EntrezQueryTool extends BaseTool {
 
 		return this.textStructuredResult(
 			`**E-utilities Summary** (${estimatedTokens} tokens, detail: ${detailPrefs.detailLevel})\n\n${formattedData}`,
+			{
+				operation: "summary",
+				database,
+				ids: ids!.split(","),
+				count: ids!.split(",").length,
+				data: data, // Include the actual parsed summary data
+				estimatedTokens,
+			},
 		);
 	}
 
@@ -928,6 +936,16 @@ export class EntrezQueryTool extends BaseTool {
 
 		return this.textStructuredResult(
 			`**E-utilities Fetch Results** (${estimatedTokens} tokens, detail: ${detailPrefs.detailLevel})\n\n${formattedData}`,
+			{
+				operation: "fetch",
+				database,
+				ids: ids!.split(","),
+				count: ids!.split(",").length,
+				rettype,
+				retmode,
+				data: data, // Include the actual fetch data
+				estimatedTokens,
+			},
 		);
 	}
 
@@ -1148,31 +1166,56 @@ export class EntrezQueryTool extends BaseTool {
 		};
 	}
 
-	private textStructuredResult(message: string) {
-		return this.structuredResult({ success: true }, message);
+	private textStructuredResult(
+		message: string,
+		data?: Record<string, unknown>,
+	) {
+		return this.structuredResult({ success: true, ...data }, message);
 	}
 
-	private async stageAndReturnSummary(_data: unknown, ids: string) {
-		// Integrate with existing staging system
+	private async stageAndReturnSummary(data: unknown, ids: string) {
+		// Include actual data for Code Mode even when staging
 		return this.textStructuredResult(
 			`✅ **ESummary Data Successfully Staged**\n\n🗃️ Use data staging tools for complex queries on ${ids.split(",").length} records.`,
+			{
+				operation: "summary",
+				ids: ids.split(","),
+				count: ids.split(",").length,
+				data: data, // Include the actual summary data
+				staged: true,
+			},
 		);
 	}
 
-	private async stageAndReturnInfo(_data: unknown, database: string) {
+	private async stageAndReturnInfo(data: unknown, database: string) {
 		return this.textStructuredResult(
 			`✅ **EInfo Data Successfully Staged**\n\n📊 Database metadata for '${database}' available for SQL queries.`,
+			{
+				operation: "info",
+				database,
+				data: data, // Include the actual info data
+				staged: true,
+			},
 		);
 	}
 
 	private async stageAndReturnFetch(
-		_data: unknown,
+		data: unknown,
 		database: string,
 		ids: string,
-		_rettype?: string,
+		rettype?: string,
 	) {
 		return this.textStructuredResult(
 			`✅ **EFetch Data Successfully Staged**\n\n📋 ${ids.split(",").length} records from '${database}' ready for analysis.`,
+			{
+				operation: "fetch",
+				database,
+				ids: ids.split(","),
+				count: ids.split(",").length,
+				rettype,
+				data: data, // Include the actual fetch data
+				staged: true,
+			},
 		);
 	}
 }
