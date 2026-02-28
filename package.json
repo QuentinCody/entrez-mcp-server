@@ -4,7 +4,7 @@
 	"private": true,
 	"scripts": {
 		"start": "npx wrangler dev",
-		"dev": "npx wrangler dev",
+		"dev": "npx wrangler dev --port 8789",
 		"build": "npx wrangler build",
 		"deploy": "npx wrangler deploy",
 		"test": "node test-rate-limits.js",
