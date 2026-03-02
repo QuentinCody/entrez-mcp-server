@@ -9,6 +9,9 @@
 	"build": {
 		"watch_dir": ["src", "wrangler.jsonc", "package.json", "tsconfig.json"]
 	},
+	"alias": {
+		"ai": "./src/ai-stub.ts"
+	},
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat"],
 	"dev": {

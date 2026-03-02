@@ -1,39 +1,42 @@
 {
-	"name": "entrez-mcp-server",
-	"version": "1.0.0",
-	"private": true,
-	"scripts": {
-		"start": "npx wrangler dev",
-		"dev": "npx wrangler dev --port 8789",
-		"build": "npx wrangler build",
-		"deploy": "npx wrangler deploy",
-		"test": "node test-rate-limits.js",
-		"test-api-key": "node test-rate-limits.js",
-		"test-mcp": "node test-mcp-transports.js",
-		"test-sdk-js": "node test-sdk-javascript.js",
-		"test-sdk-py": "python3 test-sdk-python.py",
-		"test-sdk-all": "npm run test-sdk-js && npm run test-sdk-py",
-		"test-all": "npm run test-api-key && npm run test-mcp && npm run test-sdk-all",
-		"setup-help": "echo 'See API_KEY_SETUP.md for API key configuration instructions'",
-		"check-setup": "node -e \"console.log('NCBI_API_KEY:', process.env.NCBI_API_KEY ? 'SET ✅' : 'NOT SET ❌'); console.log('Run: npm run test-api-key')\"",
-		"quick-start": "node quick-start.js",
-		"format": "biome format --write",
-		"lint:fix": "biome lint --fix",
-		"cf-typegen": "wrangler types",
-		"type-check": "tsc --noEmit"
-	},
-	"dependencies": {
-		"@cloudflare/workers-types": "^4.20240806.0",
-		"@modelcontextprotocol/sdk": "1.24.0",
-		"@types/jszip": "^3.4.0",
-		"agents": "^0.2.13",
-		"jszip": "^3.10.1",
-		"zod": "^3.23.8"
-	},
-	"devDependencies": {
-		"@biomejs/biome": "^2.0.0",
-		"@types/node": "^22.15.34",
-		"typescript": "^5.5.4",
-		"wrangler": "^4.22.0"
-	}
+  "name": "entrez-mcp-server",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "npx wrangler dev",
+    "dev": "npx wrangler dev --port 8789",
+    "build": "npx wrangler build",
+    "deploy": "npx wrangler deploy",
+    "test": "node test-rate-limits.js",
+    "test-api-key": "node test-rate-limits.js",
+    "test-mcp": "node test-mcp-transports.js",
+    "test-sdk-js": "node test-sdk-javascript.js",
+    "test-sdk-py": "python3 test-sdk-python.py",
+    "test-sdk-all": "npm run test-sdk-js && npm run test-sdk-py",
+    "test-all": "npm run test-api-key && npm run test-mcp && npm run test-sdk-all",
+    "setup-help": "echo 'See API_KEY_SETUP.md for API key configuration instructions'",
+    "check-setup": "node -e \"console.log('NCBI_API_KEY:', process.env.NCBI_API_KEY ? 'SET ✅' : 'NOT SET ❌'); console.log('Run: npm run test-api-key')\"",
+    "quick-start": "node quick-start.js",
+    "format": "biome format --write",
+    "lint:fix": "biome lint --fix",
+    "cf-typegen": "wrangler types",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cloudflare/workers-types": "^4.20240806.0",
+    "@modelcontextprotocol/sdk": "1.24.0",
+    "@types/jszip": "^3.4.0",
+    "agents": "^0.2.13",
+    "jszip": "^3.10.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.0",
+    "@types/node": "^22.15.34",
+    "typescript": "^5.5.4",
+    "wrangler": "^4.22.0"
+  },
+  "workspaces": [
+    "packages/*"
+  ]
 }
