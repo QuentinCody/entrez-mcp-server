@@ -26,6 +26,10 @@
 			{
 				"name": "JSON_TO_SQL_DO",
 				"class_name": "JsonToSqlDO"
+			},
+			{
+				"name": "ENTREZ_DATA_DO",
+				"class_name": "EntrezDataDO"
 			}
 		]
 	},
@@ -45,7 +49,15 @@
 		},
 		{
 			"tag": "v13-enhanced-validation-update"
+		},
+		{
+			"tag": "v14-add-entrez-data-do",
+			"new_sqlite_classes": ["EntrezDataDO"]
 		}
+	],
+	// Worker Loader for V8 isolate creation (Code Mode execute tool)
+	"worker_loaders": [
+		{ "binding": "CODE_MODE_LOADER" }
 	],
 	"observability": {
 		"enabled": true

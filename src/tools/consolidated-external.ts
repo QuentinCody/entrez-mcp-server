@@ -411,7 +411,7 @@ export class ExternalAPIsTool extends BaseTool {
 		const summary = this.extractPubchemSummary(data);
 		const dataSize =
 			typeof data === "string" ? data.length : JSON.stringify(data).length;
-		const summaryText = `🧪 **PubChem Compound Data** (${(dataSize / 1024).toFixed(1)} KB)\n\n${summary}\n\n**Full Data:**\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data, null, 2)}\n\`\`\``;
+		const summaryText = `🧪 **PubChem Compound Data** (${(dataSize / 1024).toFixed(1)} KB)\n\n${summary}\n\n**Full Data:**\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data)}\n\`\`\``;
 
 		return this.externalSuccess(
 			"pubchem",
@@ -441,7 +441,7 @@ export class ExternalAPIsTool extends BaseTool {
 		const response = await fetch(url);
 		const data = await this.parseResponse(response, "PubChem Substance");
 
-		const summaryText = `🧪 **PubChem Substance Data**\n\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data, null, 2)}\n\`\`\``;
+		const summaryText = `🧪 **PubChem Substance Data**\n\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data)}\n\`\`\``;
 		return this.externalSuccess(
 			"pubchem",
 			summaryText,
@@ -470,7 +470,7 @@ export class ExternalAPIsTool extends BaseTool {
 		const response = await fetch(url);
 		const data = await this.parseResponse(response, "PubChem BioAssay");
 
-		const summaryText = `🔬 **PubChem BioAssay Data**\n\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data, null, 2)}\n\`\`\``;
+		const summaryText = `🔬 **PubChem BioAssay Data**\n\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data)}\n\`\`\``;
 		return this.externalSuccess(
 			"pubchem",
 			summaryText,
@@ -512,7 +512,7 @@ export class ExternalAPIsTool extends BaseTool {
 
 		const data = await this.parseResponse(response, "PubChem Structure Search");
 
-		const summaryText = `🔍 **PubChem Structure Search Results**\n\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data, null, 2)}\n\`\`\``;
+		const summaryText = `🔍 **PubChem Structure Search Results**\n\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data)}\n\`\`\``;
 		return this.externalSuccess(
 			"pubchem",
 			summaryText,
@@ -561,7 +561,7 @@ export class ExternalAPIsTool extends BaseTool {
 		const response = await fetch(url);
 		const data = await this.parseResponse(response, "PMC ID Converter");
 
-		const summaryText = `🔄 **PMC ID Conversion Results**\n\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data, null, 2)}\n\`\`\``;
+		const summaryText = `🔄 **PMC ID Conversion Results**\n\n\`\`\`json\n${typeof data === "string" ? data : JSON.stringify(data)}\n\`\`\``;
 		return this.externalSuccess(
 			"pmc",
 			summaryText,

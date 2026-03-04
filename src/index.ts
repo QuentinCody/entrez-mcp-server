@@ -4,12 +4,13 @@ ensureZodSafeParseAsync();
 
 import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
 import JSZip from "jszip";
 import { JsonToSqlDO } from "./do.js";
-import { getParserFor } from "./lib/parsers.js";
-import { ToolRegistry } from "./tools/index.js";
+import { EntrezDataDO } from "./staging-do.js";
 import type { ToolContext } from "./tools/index.js";
+import { registerQueryData } from "./tools/query-data.js";
+import { registerGetSchema } from "./tools/get-schema.js";
+import { registerCodeMode } from "./tools/code-mode.js";
 // Define our MCP agent for NCBI Entrez E-utilities
 export class EntrezMCP extends McpAgent implements ToolContext {
 	server = new McpServer(
@@ -239,25 +240,15 @@ export class EntrezMCP extends McpAgent implements ToolContext {
 			}
 		}
 
-		// Check for common NCBI error patterns (only for E-utilities tools). Perform case-insensitive scan.
-		const lowerData = data.toLowerCase();
-		if (
-			lowerData.includes("<e>") ||
-			lowerData.includes('"error"') ||
-			lowerData.includes("error")
-		) {
-			// Capture NCBI error messages accurately
-			const errorMatch =
-				// Match XML error tags like <e> or <e>
-				data.match(/<Error[^>]*>([\s\S]*?)<\/Error>/i) ||
-				data.match(/<ERROR[^>]*>([\s\S]*?)<\/ERROR>/i) ||
-				// Match JSON style "ERROR":"message"
-				data.match(/"ERROR"\s*:\s*"([^"]*)"/i) ||
-				// Generic 'error' text in plain responses
-				data.match(/error['":]?\s*([^"',}\n]*)/i);
-			if (errorMatch) {
-				throw new Error(`NCBI ${toolName} error: ${errorMatch[1]}`);
-			}
+		// Check for NCBI error patterns in XML/JSON responses.
+		// Only match actual error structures — NOT article text that happens to
+		// contain the word "error" (e.g. "standard error", "margin of error").
+		const errorMatch =
+			data.match(/<Error[^>]*>([\s\S]*?)<\/Error>/i) ||
+			data.match(/<ERROR[^>]*>([\s\S]*?)<\/ERROR>/i) ||
+			data.match(/"ERROR"\s*:\s*"([^"]*)"/i);
+		if (errorMatch) {
+			throw new Error(`NCBI ${toolName} error: ${errorMatch[1]}`);
 		}
 
 		// Apply XML optimization before returning
@@ -524,7 +515,7 @@ export class EntrezMCP extends McpAgent implements ToolContext {
 			) {
 				return this.formatESearchResponse(data);
 			}
-			return JSON.stringify(data, null, 2);
+			return JSON.stringify(data);
 		} else {
 			return String(data);
 		}
@@ -771,9 +762,12 @@ export class EntrezMCP extends McpAgent implements ToolContext {
 	}
 
 	async init() {
-		// Register all tools using the new tool registry
-		const toolRegistry = new ToolRegistry(this);
-		toolRegistry.registerAll();
+		const env = this.getEnvironment();
+		if (env) {
+			registerQueryData(this.server, env as unknown as Record<string, unknown>);
+			registerGetSchema(this.server, env as unknown as Record<string, unknown>);
+			registerCodeMode(this.server, env as any);
+		}
 	}
 }
 
@@ -808,63 +802,8 @@ export default {
 		try {
 			// NEW: Streamable HTTP transport (MCP 2025-06-18 specification)
 			if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
-				const protocolVersion = request.headers.get("MCP-Protocol-Version");
-				const sessionId = request.headers.get("Mcp-Session-Id");
-
-				console.log("MCP Streamable HTTP request:", {
-					method: request.method,
-					pathname: url.pathname,
-					protocolVersion,
-					hasSessionId: !!sessionId,
-				});
-
-				// Use EntrezMCP.serve() for Streamable HTTP transport
-				const response = await EntrezMCP.serve("/mcp").fetch(request, env, ctx);
-
-				// Add MCP protocol headers if provided in request or if this is a successful response
-				if (response instanceof Response) {
-					const headers = new Headers(response.headers);
-
-					// Add CORS headers for browser compatibility
-					headers.set("Access-Control-Allow-Origin", "*");
-					headers.set(
-						"Access-Control-Expose-Headers",
-						"MCP-Protocol-Version, mcp-session-id",
-					);
-
-					// Echo back protocol version if provided
-					if (protocolVersion) {
-						headers.set("MCP-Protocol-Version", protocolVersion);
-					} else {
-						// Set current protocol version if not specified
-						headers.set("MCP-Protocol-Version", "2025-11-25");
-					}
-
-					// Generate session ID for new connections (if not provided and this is initialization)
-					if (!sessionId && request.method === "POST") {
-						try {
-							const requestBody = await request.clone().text();
-							if (requestBody.includes('"method":"initialize"')) {
-								const newSessionId = crypto.randomUUID();
-								headers.set("mcp-session-id", newSessionId);
-								console.log(
-									"Generated new session ID for initialization:",
-									newSessionId,
-								);
-							}
-						} catch (e) {
-							// Ignore errors when trying to read request body
-						}
-					}
-
-					return new Response(response.body, {
-						status: response.status,
-						statusText: response.statusText,
-						headers,
-					});
-				}
-
-				return response;
+				// @ts-ignore - Type mismatch in agents library
+				return EntrezMCP.serve("/mcp", { binding: "MCP_OBJECT" }).fetch(request, env, ctx);
 			}
 
 			return new Response(
@@ -922,6 +861,7 @@ For usage instructions, connect with an MCP client.`,
 };
 
 export { JsonToSqlDO };
+export { EntrezDataDO };
 
 // Temporary UserVault class to satisfy migration
 export class UserVault {

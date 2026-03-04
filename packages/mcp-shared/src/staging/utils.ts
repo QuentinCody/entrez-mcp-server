@@ -7,8 +7,9 @@ import {
 	createCodeModeError,
 } from "../codemode/response";
 import type { SchemaHints } from "./schema-inference";
+import { buildStagingMetadata, type StagingMetadata } from "./staging-metadata";
 
-const DEFAULT_STAGING_THRESHOLD = 50 * 1024; // 50KB
+const DEFAULT_STAGING_THRESHOLD = 30 * 1024; // 30KB — stage larger responses into SQLite for compact schema summaries
 
 /** Decide whether a response should be staged based on byte size. */
 export function shouldStage(responseBytes: number, threshold?: number): boolean {
@@ -31,24 +32,52 @@ interface DurableObjectNamespace {
 	get(id: unknown): DurableObjectStub;
 }
 
+export interface StagingProvenance {
+	toolName?: string;
+	serverName?: string;
+	args?: Record<string, unknown>;
+	apiUrl?: string;
+}
+
+export interface StageResult {
+	dataAccessId: string;
+	schema: unknown;
+	tablesCreated: string[] | undefined;
+	totalRows: number | undefined;
+	inputRows: number | undefined;
+	stagingWarnings: Record<string, unknown> | undefined;
+	/** Universal staging metadata — include as `_staging` in structuredContent */
+	_staging: StagingMetadata;
+}
+
 /**
  * Stage data to a Durable Object and return a structuredContent response
  * with the data_access_id for subsequent SQL queries.
+ *
+ * @param toolPrefix - Tool name prefix for query_data/get_schema tool names (e.g. "ctgov", "faers").
+ *   If not provided, falls back to `prefix` (the data access ID prefix).
  */
 export async function stageToDoAndRespond(
 	data: unknown,
 	doNamespace: DurableObjectNamespace,
 	prefix: string,
 	_schemaHints?: SchemaHints,
-) {
+	provenance?: StagingProvenance,
+	toolPrefix?: string,
+): Promise<StageResult> {
 	const dataAccessId = generateDataAccessId(prefix);
 	const doId = doNamespace.idFromName(dataAccessId);
 	const doInstance = doNamespace.get(doId);
 
+	const payloadBytes = JSON.stringify(data).length;
+
 	const processReq = new Request("http://localhost/process", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ data }),
+		body: JSON.stringify({
+			data,
+			...(provenance ? { context: provenance } : {}),
+		}),
 	});
 
 	const processResp = await doInstance.fetch(processReq);
@@ -56,10 +85,13 @@ export async function stageToDoAndRespond(
 		success?: boolean;
 		tables_created?: string[];
 		total_rows?: number;
+		input_rows?: number;
+		staging_warnings?: Record<string, unknown>;
 	};
 
 	if (!processResult.success) {
-		throw new Error("Failed to stage data in Durable Object");
+		const doError = (processResult as { error?: string }).error || "unknown error";
+		throw new Error(`Failed to stage data in Durable Object: ${doError}`);
 	}
 
 	// Fetch schema
@@ -71,11 +103,23 @@ export async function stageToDoAndRespond(
 		schema?: unknown;
 	};
 
+	const tables = processResult.tables_created ?? [];
+	const resolvedToolPrefix = toolPrefix ?? prefix;
+
 	return {
 		dataAccessId,
 		schema: schemaResult.success ? schemaResult.schema : null,
 		tablesCreated: processResult.tables_created,
 		totalRows: processResult.total_rows,
+		inputRows: processResult.input_rows,
+		stagingWarnings: processResult.staging_warnings,
+		_staging: buildStagingMetadata({
+			dataAccessId,
+			tables,
+			totalRows: processResult.total_rows,
+			payloadSizeBytes: payloadBytes,
+			toolPrefix: resolvedToolPrefix,
+		}),
 	};
 }
 

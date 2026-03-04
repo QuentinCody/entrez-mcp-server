@@ -28,6 +28,12 @@ export {
 	type ErrorCode,
 } from "./codemode/response";
 
+// Staging metadata (universal staging awareness)
+export {
+	buildStagingMetadata,
+	type StagingMetadata,
+} from "./staging/staging-metadata";
+
 // Staging infrastructure
 export { ChunkingEngine, type ChunkMetadata, type SqlExec } from "./staging/chunking";
 export {
@@ -38,6 +44,8 @@ export {
 	type InferredColumn,
 	type InferredTable,
 	type InferredSchema,
+	type MaterializationResult,
+	type MaterializationWarning,
 } from "./staging/schema-inference";
 export { RestStagingDO } from "./staging/rest-staging-do";
 export {
@@ -48,7 +56,60 @@ export {
 	getSchemaFromDo,
 	createQueryDataHandler,
 	createGetSchemaHandler,
+	type StageResult,
+	type StagingProvenance,
 } from "./staging/utils";
+
+// Consolidated staging engine (Tier 1 + Tier 2)
+export type {
+	TableSchema,
+	RelationshipMeta,
+	StagingContext,
+	StagingHints,
+	StagingResult,
+	DomainConfig,
+	SqlExec as StagingSqlExec,
+} from "./staging/types";
+export {
+	sanitizeTableName,
+	sanitizeColumnName,
+	singularize,
+	getSQLiteType,
+	resolveColumnTypes,
+	ensureIdColumn,
+	hasScalarFields,
+	findOriginalKey,
+	isValidId,
+} from "./staging/normalizer";
+export {
+	DEFAULT_CONFIG,
+	CIVIC_CONFIG,
+	DGIDB_CONFIG,
+	OPENTARGETS_CONFIG,
+	RCSB_PDB_CONFIG,
+	getDomainConfigByName,
+} from "./staging/domain-config";
+export {
+	isEntity,
+	inferEntityType,
+	discoverEntities,
+	type DiscoveryResult,
+} from "./staging/entity-discovery";
+export { buildSchemas, buildFallbackSchema } from "./staging/schema-builder";
+export { insertData, type InsertionResult } from "./staging/data-inserter";
+export { storeWithVirtualColumns, type VirtualColumnResult } from "./staging/virtual-columns";
+export { NormalizationEngine } from "./staging/normalization-engine";
+export { stageData } from "./staging/staging-engine";
+
+// Entity types (cross-server entity resolution)
+export type {
+	ResolvedGene,
+	ResolvedDrug,
+	ResolvedDisease,
+	ResolvedProtein,
+	ResolvedVariant,
+	ResolvedEntity,
+} from "./entities/types";
 
 // HTTP utilities
 export { restFetch, buildQueryString, type RestFetchOptions } from "./http/rest-fetch";

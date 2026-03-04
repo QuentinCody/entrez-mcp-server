@@ -624,6 +624,9 @@ export class DataManagerTool extends BaseTool {
 				success?: boolean;
 				message?: string;
 				data_access_id?: string;
+				tables_created?: string[];
+				table_count?: number;
+				total_rows?: number;
 				processing_details?: {
 					tables_created?: string[];
 					table_count?: number;
@@ -635,11 +638,25 @@ export class DataManagerTool extends BaseTool {
 						common_joins?: unknown[];
 						column_descriptions?: unknown[];
 						example_usage?: unknown[];
-					};
+						};
 				};
 			};
 			const details = stagingResult.processing_details ?? {};
-			const tables = details.tables_created ?? [];
+			const topLevelTables = Array.isArray(stagingResult.tables_created)
+				? stagingResult.tables_created
+				: [];
+			const detailTables = Array.isArray(details.tables_created)
+				? details.tables_created
+				: [];
+			const tables = detailTables.length > 0 ? detailTables : topLevelTables;
+			const topLevelRowCount =
+				typeof stagingResult.total_rows === "number"
+					? stagingResult.total_rows
+					: undefined;
+			const topLevelTableCount =
+				typeof stagingResult.table_count === "number"
+					? stagingResult.table_count
+					: undefined;
 			const joinTables =
 				details.schema_guidance?.common_joins?.flatMap(
 					(join: any) => join.tables ?? [],
@@ -653,15 +670,22 @@ export class DataManagerTool extends BaseTool {
 				.map((id) => id.trim())
 				.filter((id) => id.length > 0);
 
-			const stagedRecordCount = details.total_rows ?? 0;
-			const stagedTableCount = details.table_count ?? suggestedTables.length;
+			const stagedRecordCount =
+				typeof details.total_rows === "number"
+					? details.total_rows
+					: (topLevelRowCount ?? 0);
+			const stagedTableCount =
+				typeof details.table_count === "number"
+					? details.table_count
+					: (topLevelTableCount ?? suggestedTables.length);
+			const resolvedDataAccessId = stagingResult.data_access_id ?? dataAccessId;
 
 			const payload: Record<string, unknown> = {
 				success: stagingResult.success ?? true,
 				message:
 					stagingResult.message ??
 					"Data successfully staged into the SQL dataset.",
-				data_access_id: dataAccessId,
+				data_access_id: resolvedDataAccessId,
 				database,
 				requested_ids: idList,
 				staged_record_count: stagedRecordCount,
@@ -677,7 +701,7 @@ export class DataManagerTool extends BaseTool {
 				const rawString =
 					typeof rawData === "string"
 						? rawData
-						: JSON.stringify(rawData, null, 2);
+						: JSON.stringify(rawData);
 				payload.raw_preview = `${rawString.substring(0, 1000)}${
 					rawString.length > 1000 ? "..." : ""
 				}`;
@@ -685,7 +709,7 @@ export class DataManagerTool extends BaseTool {
 
 			const summaryLines = [
 				`✅ **Data Successfully Staged**`,
-				`🗃️  **Data Access ID**: \`${dataAccessId}\``,
+				`🗃️  **Data Access ID**: \`${resolvedDataAccessId}\``,
 				`📊  **Records Staged**: ${stagedRecordCount} rows across ${stagedTableCount} tables`,
 				`📋  **Tables Created**: ${tables.join(", ") || "none"}`,
 				`🔍  **Suggested Tables**: ${suggestedTables.join(", ")}`,

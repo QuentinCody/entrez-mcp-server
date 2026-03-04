@@ -217,7 +217,7 @@ export class QueryStagedDataTool extends BaseTool {
 					});
 					const result = await response.json();
 					return {
-						content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+						content: [{ type: "text", text: JSON.stringify(result) }],
 					};
 				} catch (e) {
 					return {

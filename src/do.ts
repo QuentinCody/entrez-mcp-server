@@ -76,9 +76,6 @@ export class JsonToSqlDO extends DurableObject {
 				this.ctx.storage.sql,
 			);
 
-			// Generate enhanced schema guidance
-			const schemaGuidance = this.generateSchemaGuidance(schemas);
-
 			// Count total rows across all tables
 			let totalRows = 0;
 			const tableNames = Object.keys(schemas);
@@ -93,17 +90,10 @@ export class JsonToSqlDO extends DurableObject {
 
 			return {
 				success: true,
-				message:
-					"Data parsed and staged successfully into a relational database with enhanced schema guidance.",
 				data_access_id: this.ctx.id.toString(),
-				processing_details: {
-					tables_created: tableNames,
-					table_count: tableNames.length,
-					total_rows: totalRows,
-					data_quality: dataQuality,
-					parsing_diagnostics: diagnostics,
-					schema_guidance: schemaGuidance,
-				},
+				tables_created: tableNames,
+				table_count: tableNames.length,
+				total_rows: totalRows,
 			};
 		} catch (error) {
 			return {
@@ -303,27 +293,9 @@ export class JsonToSqlDO extends DurableObject {
 		const basicSchema = this.ctx.storage.sql
 			.exec(`SELECT name, sql FROM sqlite_master WHERE type='table'`)
 			.toArray();
-		const enhancedSchemas = this.schemaEngine.getEnhancedSchemas();
 
 		return {
 			basic_schema: basicSchema,
-			enhanced_schemas: enhancedSchemas,
-			schema_guidance: this.generateSchemaGuidance(
-				this.schemaEngine.entitySchemas || {},
-			),
-			quick_start: {
-				sample_queries: [
-					"SELECT COUNT(*) as total_articles FROM article",
-					"SELECT DISTINCT year FROM article ORDER BY year DESC",
-					"SELECT descriptorname, COUNT(*) as usage_count FROM meshterm GROUP BY descriptorname ORDER BY usage_count DESC LIMIT 10",
-				],
-				important_notes: [
-					"Column names are lowercase (e.g., 'descriptorname', not 'DescriptorName')",
-					"Use 'year' for publication year, not 'publication_date'",
-					"MeSH terms require JOINs through article_meshterm table",
-					"Authors require JOINs through article_author table",
-				],
-			},
 		};
 	}
 }

@@ -293,7 +293,7 @@ export abstract class BaseTool {
 			? Array.isArray(summary)
 				? summary
 				: [summary]
-			: [JSON.stringify(payload, null, 2)];
+			: [JSON.stringify(payload)];
 
 		const content = textSummary.map((text) =>
 			this.textContent(text, annotations),

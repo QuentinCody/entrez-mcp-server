@@ -197,6 +197,20 @@ function sanitizeTableName(key: string): string {
 		.toLowerCase();
 }
 
+export interface MaterializationWarning {
+	rowIndex: number;
+	table: string;
+	error: string;
+}
+
+export interface MaterializationResult {
+	tablesCreated: string[];
+	totalRows: number;
+	inputRows: number;
+	failedRows: number;
+	warnings: MaterializationWarning[];
+}
+
 /**
  * Generate CREATE TABLE + INSERT statements and execute them.
  */
@@ -206,17 +220,25 @@ export function materializeSchema(
 	sql: {
 		exec: (query: string, ...bindings: unknown[]) => unknown;
 	},
-): { tablesCreated: string[]; totalRows: number } {
+): MaterializationResult {
 	const tablesCreated: string[] = [];
 	let totalRows = 0;
+	let inputRows = 0;
+	let failedRows = 0;
+	const warnings: MaterializationWarning[] = [];
+	const MAX_SAMPLE_ERRORS = 10;
 
 	for (const table of schema.tables) {
+		// If data already has an 'id' column, use _rowid as the synthetic PK
+		// to avoid "duplicate column name: id" errors
+		const hasIdColumn = table.columns.some((c) => c.name === "id");
 		const colDefs = table.columns
 			.map((c) => `"${c.name}" ${c.type}`)
 			.join(", ");
-		sql.exec(
-			`CREATE TABLE IF NOT EXISTS "${table.name}" (id INTEGER PRIMARY KEY AUTOINCREMENT, ${colDefs})`,
-		);
+		const createSql = hasIdColumn
+			? `CREATE TABLE IF NOT EXISTS "${table.name}" (_rowid INTEGER PRIMARY KEY AUTOINCREMENT, ${colDefs})`
+			: `CREATE TABLE IF NOT EXISTS "${table.name}" (id INTEGER PRIMARY KEY AUTOINCREMENT, ${colDefs})`;
+		sql.exec(createSql);
 
 		for (const idx of table.indexes) {
 			sql.exec(
@@ -225,11 +247,13 @@ export function materializeSchema(
 		}
 
 		const tableRows = rows.get(table.name) ?? [];
+		inputRows += tableRows.length;
 		const colNames = table.columns.map((c) => c.name);
 		const placeholders = colNames.map(() => "?").join(", ");
 		const insertSql = `INSERT INTO "${table.name}" (${colNames.map((n) => `"${n}"`).join(", ")}) VALUES (${placeholders})`;
 
-		for (const row of tableRows) {
+		for (let i = 0; i < tableRows.length; i++) {
+			const row = tableRows[i];
 			const flat =
 				typeof row === "object" && row !== null
 					? flattenObject(row as Record<string, unknown>, 2)
@@ -243,13 +267,20 @@ export function materializeSchema(
 			try {
 				sql.exec(insertSql, ...values);
 				totalRows++;
-			} catch {
-				// skip bad rows
+			} catch (err) {
+				failedRows++;
+				if (warnings.length < MAX_SAMPLE_ERRORS) {
+					warnings.push({
+						rowIndex: i,
+						table: table.name,
+						error: err instanceof Error ? err.message : String(err),
+					});
+				}
 			}
 		}
 
 		tablesCreated.push(table.name);
 	}
 
-	return { tablesCreated, totalRows };
+	return { tablesCreated, totalRows, inputRows, failedRows, warnings };
 }
