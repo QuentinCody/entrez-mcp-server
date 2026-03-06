@@ -61,8 +61,5 @@
 	],
 	"observability": {
 		"enabled": true
-	},
-	"vars": {
-		"NCBI_API_KEY": "${NCBI_API_KEY}"
 	}
 }

@@ -59,7 +59,7 @@ class DataStaging:
     async def query(self, sql: str, options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Query this staged dataset"""
         opts = options or {}
-        return await self.sdk.query_staged_data(
+        return await self.sdk.entrez_query_data(
             self.data_access_id,
             sql,
             intended_use=opts.get('intended_use'),
@@ -507,7 +507,7 @@ class EntrezSDK:
 
         return result
 
-    async def query_staged_data(self, data_access_id: str, sql: str,
+    async def entrez_query_data(self, data_access_id: str, sql: str,
                                intended_use: Optional[str] = None,
                                max_tokens: Optional[int] = None,
                                response_style: str = 'text') -> Dict[str, Any]:
@@ -520,6 +520,19 @@ class EntrezSDK:
             'max_tokens': max_tokens,
             'response_style': response_style
         })
+
+    async def query_staged_data(self, data_access_id: str, sql: str,
+                               intended_use: Optional[str] = None,
+                               max_tokens: Optional[int] = None,
+                               response_style: str = 'text') -> Dict[str, Any]:
+        """Backward-compatible alias for entrez_query_data()."""
+        return await self.entrez_query_data(
+            data_access_id,
+            sql,
+            intended_use=intended_use,
+            max_tokens=max_tokens,
+            response_style=response_style
+        )
 
     async def get_smart_summary(self, data_access_id: str,
                                intended_use: str = 'analysis',

@@ -169,8 +169,8 @@ ${
 }
 
 ## 📋 Next Steps:
-• Use **\`query_staged_data\`** with the data_access_id above to run any SQL query
-• Use **\`get_staged_schema\`** to see full table structures and advanced query examples
+• Use **\`entrez_query_data\`** with the data_access_id above to run any SQL query
+• Use **\`entrez_get_schema\`** to see full table structures and advanced query examples
 • All data supports standard SQL: SELECT, JOIN, WHERE, GROUP BY, ORDER BY, etc.
 
 💡 **Pro tip**: Start with \`SELECT * FROM article LIMIT 5\` to explore your data structure!`;
@@ -194,7 +194,7 @@ ${
 export class QueryStagedDataTool extends BaseTool {
 	register(): void {
 		this.context.server.tool(
-			"query_staged_data",
+			"entrez_query_data",
 			"Execute SQL queries against previously staged Entrez datasets. Query the relational database created by efetch_and_stage with full SQL support including JOINs, aggregations, and complex filtering across parsed biomedical data.",
 			{
 				data_access_id: z
@@ -237,7 +237,7 @@ export class QueryStagedDataTool extends BaseTool {
 export class GetStagedSchemaTool extends BaseTool {
 	register(): void {
 		this.context.server.tool(
-			"get_staged_schema",
+			"entrez_get_schema",
 			"Get comprehensive schema information for staged datasets including table structures, column descriptions, common aliases, example values, and recommended query patterns. Essential for understanding your staged data.",
 			{
 				data_access_id: z

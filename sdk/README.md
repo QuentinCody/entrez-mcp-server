@@ -267,7 +267,7 @@ asyncio.run(search_and_analyze())
     - `getSchema()` / `get_schema()`: Get database schema
     - `dataAccessId` / `data_access_id`: Access ID for later queries
 
-- **`queryStagedData(dataAccessId, sql, options)`** / **`query_staged_data(data_access_id, sql, ...)`**
+- **`entrezQueryData(dataAccessId, sql, options)`** / **`entrez_query_data(data_access_id, sql, ...)`**
   - Query previously staged data
   - Returns: Query results
 
